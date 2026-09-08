@@ -83,7 +83,7 @@ func TestRenderHUDProducesAPill(t *testing.T) {
 		Lang:        "en",
 		Scale:       1,
 		Accent:      color.RGBA{R: 217, G: 119, B: 87, A: 255},
-		Pulse:       1,
+		SparkScale:  1,
 	})
 	b := img.Bounds()
 	if b.Dx() < 200 || b.Dy() < 40 {

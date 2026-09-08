@@ -17,7 +17,6 @@ type stripSet struct {
 	Top, Bottom, Left, Right *image.RGBA
 	Alpha                    [4][]float64
 	Perim                    [4][]float64 // normalised perimeter position 0..1 for shimmer
-	perimTotal               float64      // total perimeter length
 }
 
 func (s *stripSet) images() [4]*image.RGBA { return [4]*image.RGBA{s.Top, s.Bottom, s.Left, s.Right} }
@@ -58,10 +57,6 @@ func renderStrips(spec borderSpec) *stripSet {
 		}
 		return a
 	}
-
-	// Perimeter: top (left→right) + right (top→bottom) + bottom (right→left) + left (bottom→top).
-	perimTotal := float64(2*(spec.W+spec.H) - 4*th)
-	s.perimTotal = perimTotal
 
 	// perimAt returns a normalised 0..1 perimeter position for a monitor-space pixel, using its
 	// nearest edge point projected onto the clockwise perimeter rectangle.

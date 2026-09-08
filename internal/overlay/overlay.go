@@ -9,7 +9,7 @@ type Config struct {
 	HotkeyLabel string  // "Esc Esc"
 	Thick       int     // logical px, default 56
 	Intensity   float64 // peak alpha at the rim, 0..1; paused uses Intensity*0.7
-	Shimmer     bool    // border glow shimmer while controlling (default true)
+	Shimmer     bool    // border glow shimmer while controlling; callers should set explicitly (use config.BorderShimmerEnabled())
 }
 
 var pausedColor = color.RGBA{R: 154, G: 154, B: 154, A: 255}

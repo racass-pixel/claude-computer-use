@@ -74,12 +74,27 @@ type Overlay struct {
 	set      *stripSet
 	anim     *time.Ticker
 	stopAnim chan struct{}
-	phase    float64
+	phase    float64 // border breathing phase (advances 2pi per 2.4s)
 	hideAt   *time.Timer
 
-	// HUD and ripple (UI-thread-only)
-	hud     *layeredWin
-	hudImg  *image.RGBA
+	// HUD animation state (UI-thread-only)
+	hud       *layeredWin
+	hudImg    *image.RGBA
+	hudAnimK  hudAnimKind // current HUD transition
+	hudAnimT0 time.Time   // start of slide-in or fade-out
+	hudRestY  int         // resting Y position
+	hudRestX  int         // resting X position (centred)
+	hudH      int         // current HUD image height (for slide offset)
+	animStart time.Time   // when the animation loop started (for spark rotation)
+
+	// Caption crossfade state (UI-thread-only)
+	prevTitle  string
+	prevSub    string
+	cfadeT0    time.Time // crossfade start; zero = no crossfade
+	cfadeTitle string    // old title during crossfade
+	cfadeSub   string    // old sub during crossfade
+
+	// Ripple (UI-thread-only)
 	rip     *layeredWin
 	ripStop chan struct{}
 }
@@ -109,7 +124,7 @@ func (o *Overlay) Hide() {
 	o.mu.Lock()
 	o.state = platform.OverlayHidden
 	o.mu.Unlock()
-	o.t.Do(o.hideAll)
+	o.t.Do(o.startFadeOut)
 }
 
 func (o *Overlay) SetTitle(title string) {
@@ -118,17 +133,19 @@ func (o *Overlay) SetTitle(title string) {
 	o.mu.Unlock()
 	o.t.Do(o.refreshHUD)
 }
+
 func (o *Overlay) SetAction(action string) {
 	o.mu.Lock()
 	o.action = action
 	o.mu.Unlock()
 	o.t.Do(o.refreshHUD)
 }
+
 func (o *Overlay) Ripple(p geom.Point) { o.t.Do(func() { o.ripple(p) }) }
 
 func (o *Overlay) Close() {
 	o.t.DoSync(func() {
-		o.hideAll()
+		o.hideAllImmediate()
 		for i, s := range o.strips {
 			if s != nil {
 				s.destroy()
@@ -146,7 +163,7 @@ func (o *Overlay) HideForCapture() {
 			s.hide()
 		}
 	}
-	o.hideHUD()
+	o.hideHUDWin()
 }
 
 // ShowAfterCapture restores the overlay windows after a capture (fallback capture exclusion).
@@ -163,7 +180,7 @@ func (o *Overlay) ShowAfterCapture() {
 // ---- UI thread ----
 
 func (o *Overlay) rebuild(m platform.Monitor, s platform.OverlayState) {
-	o.hideAll()
+	o.hideAllImmediate()
 	if s == platform.OverlayHidden {
 		return
 	}
@@ -195,11 +212,14 @@ func (o *Overlay) rebuild(m platform.Monitor, s platform.OverlayState) {
 		peak *= 0.7
 	}
 	o.set = renderStrips(borderSpec{W: r.W, H: r.H, Thick: th, Color: col, Peak: peak})
+	o.animStart = time.Now()
 	o.frame()
 	o.showHUD(m, s)
 	o.startAnim()
 	if s == platform.OverlayPaused {
-		o.hideAt = time.AfterFunc(2500*time.Millisecond, func() { o.t.Do(o.hideAll) })
+		o.hideAt = time.AfterFunc(2500*time.Millisecond, func() {
+			o.t.Do(o.startFadeOut)
+		})
 	}
 }
 
@@ -214,7 +234,7 @@ func (o *Overlay) frame() {
 	shimmerPos := -1.0
 	if o.cfg.Shimmer && !paused {
 		// Shimmer travels around the frame once per 6 seconds.
-		shimmerPos = math.Mod(o.phase/(2*math.Pi)*2.4/6.0, 1.0) // phase advances 2pi per 2.4s
+		shimmerPos = math.Mod(o.phase/(2*math.Pi)*2.4/6.0, 1.0)
 	}
 	o.set.apply(breath, shimmerPos)
 	for i, img := range o.set.images() {
@@ -253,8 +273,35 @@ func (o *Overlay) stopAnimLoop() {
 	}
 }
 
-func (o *Overlay) hideAll() {
+// hideAllImmediate stops everything and hides all windows instantly (no fade).
+func (o *Overlay) hideAllImmediate() {
 	o.stopAnimLoop()
+	if o.hideAt != nil {
+		o.hideAt.Stop()
+		o.hideAt = nil
+	}
+	o.hudAnimK = hudAnimNone
+	o.cfadeT0 = time.Time{}
+	for _, s := range o.strips {
+		if s != nil {
+			s.hide()
+		}
+	}
+	o.hideHUDWin()
+}
+
+// startFadeOut begins the 180ms fade-out. If a slide-in is running, it cancels.
+func (o *Overlay) startFadeOut() {
+	if o.hud == nil || !o.hud.visible {
+		// Already hidden, just clean up.
+		o.hideAllImmediate()
+		return
+	}
+	// Cancel any running slide-in.
+	o.hudAnimK = hudAnimFadeOut
+	o.hudAnimT0 = time.Now()
+	// Keep the animation loop running so pulseHUD drives the fade.
+	// The border strips hide immediately.
 	if o.hideAt != nil {
 		o.hideAt.Stop()
 		o.hideAt = nil
@@ -264,7 +311,6 @@ func (o *Overlay) hideAll() {
 			s.hide()
 		}
 	}
-	o.hideHUD()
 }
 
 func (o *Overlay) hudSpecNow() (hudSpec, platform.Monitor, platform.OverlayState) {
@@ -272,6 +318,11 @@ func (o *Overlay) hudSpecNow() (hudSpec, platform.Monitor, platform.OverlayState
 	defer o.mu.Unlock()
 	paused := o.state == platform.OverlayPaused
 	l1, l2 := hudText(o.cfg.Lang, o.cfg.HotkeyLabel, o.title, o.action, paused)
+	// Spark rotation: one revolution per 8 seconds.
+	elapsed := time.Since(o.animStart).Seconds()
+	sparkPhase := 2 * math.Pi * elapsed / 8.0
+	// Spark breathing: synced with border phase.
+	sparkScale := sparkBreathScale(o.phase)
 	return hudSpec{
 		Title:       l1,
 		Sub:         l2,
@@ -280,22 +331,117 @@ func (o *Overlay) hudSpecNow() (hudSpec, platform.Monitor, platform.OverlayState
 		Scale:       o.mon.ScaleFactor,
 		Accent:      o.cfg.Accent,
 		Paused:      paused,
-		Pulse:       0.5 + 0.5*math.Sin(o.phase*2),
-		SparkPhase:  o.phase,
+		SparkPhase:  sparkPhase,
+		SparkScale:  sparkScale,
 	}, o.mon, o.state
 }
 
-func (o *Overlay) showHUD(m platform.Monitor, s platform.OverlayState) { o.refreshHUD() }
+func (o *Overlay) showHUD(m platform.Monitor, _ platform.OverlayState) {
+	// Begin slide-in animation.
+	o.hudAnimK = hudAnimSlideIn
+	o.hudAnimT0 = time.Now()
+	o.cfadeT0 = time.Time{}
+	o.prevTitle = ""
+	o.prevSub = ""
+	o.refreshHUD()
+}
 
 func (o *Overlay) refreshHUD() {
 	spec, m, st := o.hudSpecNow()
 	if st == platform.OverlayHidden || m.ID == 0 {
 		return
 	}
+
+	// Detect text change for crossfade.
+	if o.prevTitle != "" || o.prevSub != "" {
+		if spec.Title != o.prevTitle || spec.Sub != o.prevSub {
+			o.cfadeTitle = o.prevTitle
+			o.cfadeSub = o.prevSub
+			o.cfadeT0 = time.Now()
+		}
+	}
+	o.prevTitle = spec.Title
+	o.prevSub = spec.Sub
+
+	// Compute HUD animation alpha and Y offset.
+	now := time.Now()
+	var yOff float64
+	alpha := 1.0
+	if o.hudAnimK != hudAnimNone {
+		elapsed := float64(now.Sub(o.hudAnimT0).Milliseconds())
+		img := renderHUD(spec) // render once to get height
+		h := float64(img.Bounds().Dy())
+		yOff, alpha = hudAnimState(o.hudAnimK, elapsed, h)
+		// Check if animation finished.
+		switch o.hudAnimK {
+		case hudAnimSlideIn:
+			if elapsed >= slideInMs {
+				o.hudAnimK = hudAnimNone
+				yOff, alpha = 0, 1
+			}
+		case hudAnimFadeOut:
+			if elapsed >= fadeOutMs {
+				o.hudAnimK = hudAnimNone
+				o.hideAllImmediate()
+				return
+			}
+		}
+	}
+
+	// Apply crossfade: blend old and new captions.
+	if !o.cfadeT0.IsZero() {
+		cfElapsed := float64(now.Sub(o.cfadeT0).Milliseconds())
+		oldA, newA := crossFadeAlphas(cfElapsed)
+		if oldA <= 0 {
+			// Crossfade done.
+			o.cfadeT0 = time.Time{}
+		} else {
+			// Render old spec at oldA, new spec at newA, composite.
+			oldSpec := spec
+			oldSpec.Title = o.cfadeTitle
+			oldSpec.Sub = o.cfadeSub
+			oldSpec.Alpha = oldA * alpha
+			newSpec := spec
+			newSpec.Alpha = newA * alpha
+			imgOld := renderHUD(oldSpec)
+			imgNew := renderHUD(newSpec)
+			// Composite: take the larger bounds.
+			w := max(imgOld.Bounds().Dx(), imgNew.Bounds().Dx())
+			h := max(imgOld.Bounds().Dy(), imgNew.Bounds().Dy())
+			composite := image.NewRGBA(image.Rect(0, 0, w, h))
+			// Copy old then blend new over it.
+			copy(composite.Pix, imgOld.Pix)
+			for i := 0; i < len(imgNew.Pix) && i < len(composite.Pix); i += 4 {
+				sa := float64(imgNew.Pix[i+3]) / 255
+				da := float64(composite.Pix[i+3]) / 255
+				outA := sa + da*(1-sa)
+				if outA > 0 {
+					for c := 0; c < 3; c++ {
+						composite.Pix[i+c] = uint8((float64(imgNew.Pix[i+c])*sa + float64(composite.Pix[i+c])*da*(1-sa)) / outA)
+					}
+					composite.Pix[i+3] = uint8(outA * 255)
+				}
+			}
+			o.updateHUDWindow(composite, m, yOff)
+			return
+		}
+	}
+
+	spec.Alpha = alpha
 	img := renderHUD(spec)
+	o.updateHUDWindow(img, m, yOff)
+}
+
+func (o *Overlay) updateHUDWindow(img *image.RGBA, m platform.Monitor, yOff float64) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	x := m.Rect.X + (m.Rect.W-w)/2
-	y := m.Rect.Y + int(14*m.ScaleFactor)
+	restY := m.Rect.Y + int(14*m.ScaleFactor)
+	y := restY + int(yOff)
+
+	o.hudRestX = x
+	o.hudRestY = restY
+	o.hudH = h
+
 	if o.hud == nil || o.hud.w != w || o.hud.h != h {
 		if o.hud != nil {
 			o.hud.destroy()
@@ -311,14 +457,35 @@ func (o *Overlay) refreshHUD() {
 	o.hud.update(img)
 }
 
-// pulseHUD is called every frame; re-rendering text at 30 fps is ~1 ms, acceptable.
+// hudNeedsRender returns true if the HUD should be re-rendered this frame.
+func (o *Overlay) hudNeedsRender() bool {
+	// Always render during animations.
+	if o.hudAnimK != hudAnimNone {
+		return true
+	}
+	// Always render during crossfade.
+	if !o.cfadeT0.IsZero() {
+		return true
+	}
+	// While controlling: spark rotates, so we need to re-render.
+	o.mu.Lock()
+	st := o.state
+	o.mu.Unlock()
+	if st == platform.OverlayControlling {
+		return true
+	}
+	// Paused and static: no re-render needed.
+	return false
+}
+
+// pulseHUD is called every frame.
 func (o *Overlay) pulseHUD() {
-	if o.hud != nil && o.hud.visible {
+	if o.hud != nil && o.hud.visible && o.hudNeedsRender() {
 		o.refreshHUD()
 	}
 }
 
-func (o *Overlay) hideHUD() {
+func (o *Overlay) hideHUDWin() {
 	if o.hud != nil {
 		o.hud.hide()
 	}

@@ -119,19 +119,6 @@ func hudText(lang, hotkeyLabel, title, action string, paused bool) (string, stri
 	return l1, l2
 }
 
-func sprintf(format, a string) string {
-	out := make([]byte, 0, len(format)+len(a))
-	for i := 0; i < len(format); i++ {
-		if format[i] == '%' && i+1 < len(format) && format[i+1] == 's' {
-			out = append(out, a...)
-			i++
-			continue
-		}
-		out = append(out, format[i])
-	}
-	return string(out)
-}
-
 type hudSpec struct {
 	Title, Sub  string
 	HotkeyLabel string
@@ -139,8 +126,8 @@ type hudSpec struct {
 	Scale       float64
 	Accent      color.RGBA
 	Paused      bool
-	Pulse       float64 // 0..1
 	SparkPhase  float64
+	SparkScale  float64 // breathing multiplier 0.92..1.08; 0 means 1
 	Alpha       float64 // overall alpha multiplier 0..1; 0 means 1
 }
 
@@ -279,11 +266,16 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	sparkCY := float64(padY) + float64(titleH)/2
 	sparkCol := spec.Accent
 	sparkPhase := spec.SparkPhase
+	sparkScale := spec.SparkScale
+	if sparkScale <= 0 {
+		sparkScale = 1
+	}
 	if spec.Paused {
 		sparkCol = pausedColor
 		sparkPhase = 0
+		sparkScale = 1
 	}
-	renderSpark(img, sparkCX, sparkCY, sparkR, sparkPhase, sparkCol)
+	renderSpark(img, sparkCX, sparkCY, sparkR*sparkScale, sparkPhase, sparkCol)
 
 	// Title
 	x := padX + sparkSize + sparkGap
