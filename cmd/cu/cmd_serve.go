@@ -194,6 +194,11 @@ func runServe(args []string) error {
 		Version:    version,
 		OnSessionReady: func(s *server.Session) {
 			sessionRef.Store(s)
+			// On shutdown, release any held mouse button.
+			go func() {
+				<-ctx.Done()
+				s.OnRelease()
+			}()
 		},
 	}
 	return server.Run(ctx, deps, cfg, logger)

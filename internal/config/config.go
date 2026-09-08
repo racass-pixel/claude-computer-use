@@ -28,6 +28,7 @@ type Config struct {
 	BorderIntensity    float64 `json:"border_intensity"`
 	BorderShimmer      *bool   `json:"border_shimmer,omitempty"` // nil = true (default on)
 	MouseGlideMs       int     `json:"mouse_glide_ms"`
+	DragHoldTimeoutMs  int     `json:"drag_hold_timeout_ms"`
 	LogFile            string  `json:"log_file"`
 }
 
@@ -42,7 +43,7 @@ func Default() Config {
 		ScreenshotLongEdge: 1366, ScreenshotFormat: "png", JPEGQuality: 85,
 		Lang: "auto", Accent: "#D97757", Overlay: true,
 		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200,
-		BorderThickness: 56, BorderIntensity: 0.85, MouseGlideMs: 220,
+		BorderThickness: 56, BorderIntensity: 0.85, MouseGlideMs: 220, DragHoldTimeoutMs: 60000,
 	}
 }
 
@@ -150,6 +151,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		num("CU_PASTE_THRESHOLD", &c.PasteThreshold),
 		num("CU_BORDER_THICKNESS", &c.BorderThickness),
 		num("CU_MOUSE_GLIDE_MS", &c.MouseGlideMs),
+		num("CU_DRAG_HOLD_TIMEOUT_MS", &c.DragHoldTimeoutMs),
 		float("CU_BORDER_INTENSITY", &c.BorderIntensity),
 		boolPtr("CU_BORDER_SHIMMER", &c.BorderShimmer),
 	} {

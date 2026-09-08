@@ -10,7 +10,7 @@ import (
 )
 
 type BatchAction struct {
-	Tool string         `json:"tool" jsonschema:"click, move, drag, scroll, type, key, wait, window, clipboard, find, pixel or click_until"`
+	Tool string         `json:"tool" jsonschema:"click, move, drag, scroll, type, key, wait, window, clipboard, find, pixel, click_until, mouse_down or mouse_up"`
 	Args map[string]any `json:"args,omitempty" jsonschema:"the tool's arguments; screenshot is forced off for steps"`
 }
 
@@ -49,6 +49,8 @@ func wrap[In any](h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallTo
 
 func (s *Session) batchable() map[string]batchFn {
 	return map[string]batchFn{
+		"mouse_down":  wrap(s.toolMouseDown),
+		"mouse_up":    wrap(s.toolMouseUp),
 		"click":       wrap(s.toolClick),
 		"move":        wrap(s.toolMove),
 		"drag":        wrap(s.toolDrag),

@@ -172,6 +172,105 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 	return a.In.MouseUp(btn)
 }
 
+// Waypoint is an intermediate point in a multi-leg drag with an optional pause.
+type Waypoint struct {
+	P      geom.Point
+	WaitMs int
+}
+
+// Press moves to p and presses btn without releasing (for cross-call held drags).
+func (a *Actor) Press(p geom.Point, btn platform.MouseButton) error {
+	if btn == "" {
+		btn = platform.ButtonLeft
+	}
+	if err := a.MoveTo(p); err != nil {
+		return err
+	}
+	a.sleep(30 * time.Millisecond)
+	return a.In.MouseDown(btn)
+}
+
+// Release optionally moves to p and releases btn.
+func (a *Actor) Release(p *geom.Point, btn platform.MouseButton) error {
+	if btn == "" {
+		btn = platform.ButtonLeft
+	}
+	if p != nil {
+		if err := a.MoveTo(*p); err != nil {
+			return err
+		}
+	}
+	a.sleep(80 * time.Millisecond)
+	return a.In.MouseUp(btn)
+}
+
+// DragVia presses at from, interpolates through waypoints, and releases at to.
+func (a *Actor) DragVia(from geom.Point, via []Waypoint, to geom.Point, btn platform.MouseButton, dur time.Duration) error {
+	if btn == "" {
+		btn = platform.ButtonLeft
+	}
+	if dur <= 0 {
+		dur = 250 * time.Millisecond
+	}
+	// Count total legs: from→wp1, wp1→wp2, ..., wpN→to
+	legs := len(via) + 1
+	legDur := dur / time.Duration(legs)
+
+	if err := a.MoveTo(from); err != nil {
+		return err
+	}
+	a.sleep(30 * time.Millisecond)
+	if err := a.In.MouseDown(btn); err != nil {
+		return err
+	}
+	released := false
+	defer func() {
+		if !released {
+			a.In.MouseUp(btn)
+		}
+	}()
+	a.sleep(80 * time.Millisecond)
+
+	prev := from
+	for _, wp := range via {
+		if err := a.interpolateMove(prev, wp.P, legDur); err != nil {
+			return err
+		}
+		if wp.WaitMs > 0 {
+			a.sleep(time.Duration(wp.WaitMs) * time.Millisecond)
+		}
+		prev = wp.P
+	}
+	if err := a.interpolateMove(prev, to, legDur); err != nil {
+		return err
+	}
+	a.sleep(80 * time.Millisecond)
+	released = true
+	return a.In.MouseUp(btn)
+}
+
+// interpolateMove moves from src to dst in linear steps over dur.
+func (a *Actor) interpolateMove(src, dst geom.Point, dur time.Duration) error {
+	steps := max(8, int(dur/(12*time.Millisecond)))
+	for i := 1; i <= steps; i++ {
+		t := float64(i) / float64(steps)
+		p := geom.Point{
+			X: src.X + int(float64(dst.X-src.X)*t+0.5),
+			Y: src.Y + int(float64(dst.Y-src.Y)*t+0.5),
+		}
+		if i == steps {
+			p = dst
+		}
+		if err := a.In.MouseMove(p); err != nil {
+			return err
+		}
+		if i < steps {
+			a.sleep(dur / time.Duration(steps))
+		}
+	}
+	return nil
+}
+
 // Scroll optionally moves to p, then scrolls by ticks (dy>0 down, dx>0 right).
 func (a *Actor) Scroll(p *geom.Point, dx, dy int) error {
 	if p != nil {

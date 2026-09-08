@@ -50,6 +50,7 @@ type Session struct {
 	cfg   config.Config
 	log   *log.Logger
 	actor *actions.Actor
+	Now   func() time.Time // injectable clock; nil = time.Now
 
 	mu       sync.Mutex
 	view     screen.View
@@ -64,6 +65,10 @@ type Session struct {
 	traceN    int            // total entries ever written
 	traceSum  string         // summary set by begin(), consumed by finish()
 	traceArgs map[string]any // sanitized args set by begin(), consumed by finish()
+
+	// Held mouse button state (cross-call drags).
+	heldButton platform.MouseButton // "" = no button held
+	heldSince  time.Time
 
 	// Job state for recipe suggestions and auto-recording.
 	taskCaption    string // set by acquire with a task
@@ -101,7 +106,9 @@ func (s *Session) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "monitors", Description: "List monitors with ids, physical pixel rects, DPI scale, and which one holds the cursor and the foreground window."}, s.toolMonitors)
 	mcp.AddTool(srv, &mcp.Tool{Name: "click", Description: "Click at x,y (pixels of the last screenshot) or on an element id from find. Supports right/middle button, double/triple click and held modifiers. Returns a screenshot after the click by default."}, s.toolClick)
 	mcp.AddTool(srv, &mcp.Tool{Name: "move", Description: "Move the mouse (hover) to x,y of the last screenshot or to an element. No screenshot by default."}, s.toolMove)
-	mcp.AddTool(srv, &mcp.Tool{Name: "drag", Description: "Press at from, move smoothly, release at to (drag-and-drop, selections, sliders, window moves). Coordinates are pixels of the last screenshot or element ids."}, s.toolDrag)
+	mcp.AddTool(srv, &mcp.Tool{Name: "mouse_down", Description: "Press a mouse button at x,y (or an element) and HOLD it across calls. Use for cross-window drag-and-drop: mouse_down on the file → move to the target window's taskbar button → wait{ms:1200} (Windows activates it) → move to the drop zone → mouse_up. Or Alt+Tab mid-drag. The button is auto-released on pause, idle, or timeout."}, s.toolMouseDown)
+	mcp.AddTool(srv, &mcp.Tool{Name: "mouse_up", Description: "Release a held mouse button, optionally at x,y (omit to release at the current cursor position). Completes a cross-window drag started with mouse_down."}, s.toolMouseUp)
+	mcp.AddTool(srv, &mcp.Tool{Name: "drag", Description: "Press at from, move smoothly, release at to (drag-and-drop, selections, sliders, window moves). Coordinates are pixels of the last screenshot or element ids. For cross-window drags, add via:[{x,y,wait_ms:1200}] to hover taskbar buttons mid-drag."}, s.toolDrag)
 	mcp.AddTool(srv, &mcp.Tool{Name: "scroll", Description: "Scroll the mouse wheel at an optional x,y. dy>0 scrolls down, dx>0 scrolls right, in ticks."}, s.toolScroll)
 	mcp.AddTool(srv, &mcp.Tool{Name: "type", Description: "Type text into the focused control (Unicode, any language). Long texts are pasted via the clipboard. Newlines press Enter."}, s.toolType)
 	mcp.AddTool(srv, &mcp.Tool{Name: "key", Description: "Press one chord (key: \"ctrl+s\") or a sequence (keys: [\"win+r\",\"enter\"]). Names: ctrl, alt, shift, win, enter, esc, tab, space, backspace, delete, home, end, pageup, pagedown, arrows, f1-f24, letters, digits."}, s.toolKey)

@@ -38,5 +38,8 @@ Recipes are procedural memory — saved sequences of desktop actions that can be
 4. **Manual save** for best quality: call `recipe{action:"draft"}` to get a recipe built from the trace (it drops non-action tools, collapses waits, parametrises long texts, adds wait steps after app transitions), then edit and save with `recipe{action:"save", name:"<name in the user's language>", description:"<description with synonyms so search finds it>", app:"<process>", params:[...], steps:[...]}`.
 5. Recipes that have been run >= 2 times with zero successes are automatically excluded from suggestions.
 
+## Cross-window drag-and-drop
+Use `mouse_down` / `mouse_up` (or `drag` with `via` waypoints) to drag files or objects between windows. Hover a taskbar button for ~1.2 s to activate the target window mid-drag, or use `key{key:"alt+tab"}`. See the operator agent prompt for the full recipe.
+
 ## Cost
 A screenshot is ~1.5k tokens. Prefer `find`, `batch`, `wait{stable:true}`, and `screenshot:false` on steps you do not need to see. Zoom with `screenshot{region}` only for small targets. Read only what the task needs — do not scroll through history or lists unless the task asks for it or the needed item is not on screen. For repetitive lists where every row needs the same action, use `pixel` to calibrate a visual cue and `click_until` to grind through rows server-side without per-click screenshots.

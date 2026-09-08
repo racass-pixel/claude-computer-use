@@ -7,9 +7,92 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/racass-pixel/claude-computer-use/internal/actions"
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
 )
+
+type MouseDownIn struct {
+	X                *int      `json:"x,omitempty" jsonschema:"x in pixels of the last screenshot"`
+	Y                *int      `json:"y,omitempty" jsonschema:"y in pixels of the last screenshot"`
+	Element          string    `json:"element,omitempty" jsonschema:"element id from find, used instead of x,y"`
+	Button           string    `json:"button,omitempty" jsonschema:"left (default), right or middle"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+}
+
+func (s *Session) toolMouseDown(ctx context.Context, req *mcp.CallToolRequest, in MouseDownIn) (*mcp.CallToolResult, any, error) {
+	t0 := time.Now()
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
+	p, err := s.resolvePoint(in.X, in.Y, in.Element)
+	if err != nil {
+		return errResult("bad_target", err.Error()), nil, nil
+	}
+	target := in.Element
+	if in.X != nil && in.Y != nil {
+		target = fmt.Sprintf("%d,%d", *in.X, *in.Y)
+	}
+	btn := platform.MouseButton(in.Button)
+	if btn == "" {
+		btn = platform.ButtonLeft
+	}
+	if early := s.begin(ctx, "mouse_down", "mouse_down|"+target, toArgsMap(in)); early != nil {
+		return early, nil, nil
+	}
+	if err := s.actor.Press(p, btn); err != nil {
+		return errResult("input_failed", err.Error()), nil, nil
+	}
+	s.setHeld(btn)
+	return s.finish("mouse_down", t0, map[string]any{"screen_point": [2]int{p.X, p.Y}, "held_button": string(btn)}, shot, s.settleFor("click")), nil, nil
+}
+
+type MouseUpIn struct {
+	X                *int      `json:"x,omitempty" jsonschema:"x in pixels of the last screenshot; omit to release at the current cursor position"`
+	Y                *int      `json:"y,omitempty" jsonschema:"y in pixels of the last screenshot; omit to release at the current cursor position"`
+	Element          string    `json:"element,omitempty" jsonschema:"element id from find, used instead of x,y"`
+	Button           string    `json:"button,omitempty" jsonschema:"left (default), right or middle"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+}
+
+func (s *Session) toolMouseUp(ctx context.Context, req *mcp.CallToolRequest, in MouseUpIn) (*mcp.CallToolResult, any, error) {
+	t0 := time.Now()
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
+	var target string
+	var pp *geom.Point
+	if in.X != nil && in.Y != nil || in.Element != "" {
+		p, err := s.resolvePoint(in.X, in.Y, in.Element)
+		if err != nil {
+			return errResult("bad_target", err.Error()), nil, nil
+		}
+		pp = &p
+		target = fmt.Sprintf("%d,%d", p.X, p.Y)
+	} else {
+		target = "cursor"
+	}
+	btn := platform.MouseButton(in.Button)
+	if btn == "" {
+		btn = platform.ButtonLeft
+	}
+	if early := s.begin(ctx, "mouse_up", "mouse_up|"+target, toArgsMap(in)); early != nil {
+		return early, nil, nil
+	}
+	if err := s.actor.Release(pp, btn); err != nil {
+		return errResult("input_failed", err.Error()), nil, nil
+	}
+	s.clearHeld()
+	extra := map[string]any{}
+	if pp != nil {
+		extra["screen_point"] = [2]int{pp.X, pp.Y}
+	}
+	return s.finish("mouse_up", t0, extra, shot, s.settleFor("click")), nil, nil
+}
 
 type ClickIn struct {
 	X                *int      `json:"x,omitempty" jsonschema:"x in pixels of the last screenshot"`
@@ -43,11 +126,17 @@ func (s *Session) toolClick(ctx context.Context, req *mcp.CallToolRequest, in Cl
 	if early := s.begin(ctx, "click", "click|"+target, toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
+	// Release any held button before clicking.
+	releasedBtn := s.releaseHeldButton()
 	if err := s.actor.Click(p, platform.MouseButton(in.Button), in.Count, mods); err != nil {
 		return errResult("input_failed", err.Error()), nil, nil
 	}
 	s.d.Overlay.Ripple(p)
-	return s.finish("click", t0, map[string]any{"screen_point": [2]int{p.X, p.Y}}, shot, s.settleFor("click")), nil, nil
+	extra := map[string]any{"screen_point": [2]int{p.X, p.Y}}
+	if releasedBtn != "" {
+		extra["released_held_button"] = true
+	}
+	return s.finish("click", t0, extra, shot, s.settleFor("click")), nil, nil
 }
 
 type MoveIn struct {
@@ -83,13 +172,22 @@ type PointIn struct {
 	Element string `json:"element,omitempty" jsonschema:"element id from find, used instead of x,y"`
 }
 
+type WaypointIn struct {
+	X       *int   `json:"x,omitempty" jsonschema:"x in pixels of the last screenshot"`
+	Y       *int   `json:"y,omitempty" jsonschema:"y in pixels of the last screenshot"`
+	Element string `json:"element,omitempty" jsonschema:"element id from find, used instead of x,y"`
+	WaitMs  int    `json:"wait_ms,omitempty" jsonschema:"pause at this point in ms (e.g. 1200 to let Windows activate a taskbar button)"`
+}
+
 type DragIn struct {
-	From             PointIn   `json:"from" jsonschema:"where to press"`
-	To               PointIn   `json:"to" jsonschema:"where to release"`
-	Button           string    `json:"button,omitempty" jsonschema:"left (default), right or middle"`
-	DurationMs       int       `json:"duration_ms,omitempty" jsonschema:"drag duration in ms (default 250); use 600+ for drag-and-drop into other apps"`
-	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
-	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+	From             PointIn      `json:"from" jsonschema:"where to press"`
+	To               PointIn      `json:"to" jsonschema:"where to release"`
+	Via              []WaypointIn `json:"via,omitempty" jsonschema:"intermediate waypoints with optional pauses (for cross-window drags: hover a taskbar button with wait_ms:1200)"`
+	Button           string       `json:"button,omitempty" jsonschema:"left (default), right or middle"`
+	DurationMs       int          `json:"duration_ms,omitempty" jsonschema:"drag duration in ms (default 250); use 600+ for drag-and-drop into other apps"`
+	HoldMs           int          `json:"hold_ms,omitempty" jsonschema:"pause over the target before releasing (default 80); increase for OLE drop targets"`
+	ScreenshotRegion *RegionIn    `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool        `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
 }
 
 func (s *Session) toolDrag(ctx context.Context, req *mcp.CallToolRequest, in DragIn) (*mcp.CallToolResult, any, error) {
@@ -106,11 +204,26 @@ func (s *Session) toolDrag(ctx context.Context, req *mcp.CallToolRequest, in Dra
 	if err != nil {
 		return errResult("bad_target", "to: "+err.Error()), nil, nil
 	}
+	// Resolve via waypoints.
+	var waypoints []actions.Waypoint
+	for i, wp := range in.Via {
+		p, err := s.resolvePoint(wp.X, wp.Y, wp.Element)
+		if err != nil {
+			return errResult("bad_target", fmt.Sprintf("via[%d]: %s", i, err.Error())), nil, nil
+		}
+		waypoints = append(waypoints, actions.Waypoint{P: p, WaitMs: wp.WaitMs})
+	}
 	if early := s.begin(ctx, "drag", fmt.Sprintf("drag|→ %d,%d", to.X, to.Y), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
-	if err := s.actor.Drag(from, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond); err != nil {
-		return errResult("input_failed", err.Error()), nil, nil
+	var dragErr error
+	if len(waypoints) > 0 {
+		dragErr = s.actor.DragVia(from, waypoints, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond)
+	} else {
+		dragErr = s.actor.Drag(from, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond)
+	}
+	if dragErr != nil {
+		return errResult("input_failed", dragErr.Error()), nil, nil
 	}
 	s.d.Overlay.Ripple(to)
 	return s.finish("drag", t0, map[string]any{"from": [2]int{from.X, from.Y}, "to": [2]int{to.X, to.Y}}, shot, s.settleFor("drag")), nil, nil

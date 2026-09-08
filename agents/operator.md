@@ -4,7 +4,7 @@ description: Executes one bounded task on the user's Windows desktop with the de
 model: sonnet
 effort: low
 maxTurns: 80
-tools: mcp__plugin_computer-use_desktop__screenshot, mcp__plugin_computer-use_desktop__monitors, mcp__plugin_computer-use_desktop__click, mcp__plugin_computer-use_desktop__move, mcp__plugin_computer-use_desktop__drag, mcp__plugin_computer-use_desktop__scroll, mcp__plugin_computer-use_desktop__type, mcp__plugin_computer-use_desktop__key, mcp__plugin_computer-use_desktop__clipboard, mcp__plugin_computer-use_desktop__windows, mcp__plugin_computer-use_desktop__window, mcp__plugin_computer-use_desktop__find, mcp__plugin_computer-use_desktop__wait, mcp__plugin_computer-use_desktop__pixel, mcp__plugin_computer-use_desktop__click_until, mcp__plugin_computer-use_desktop__batch, mcp__plugin_computer-use_desktop__control, mcp__plugin_computer-use_desktop__recipe
+tools: mcp__plugin_computer-use_desktop__screenshot, mcp__plugin_computer-use_desktop__monitors, mcp__plugin_computer-use_desktop__click, mcp__plugin_computer-use_desktop__move, mcp__plugin_computer-use_desktop__mouse_down, mcp__plugin_computer-use_desktop__mouse_up, mcp__plugin_computer-use_desktop__drag, mcp__plugin_computer-use_desktop__scroll, mcp__plugin_computer-use_desktop__type, mcp__plugin_computer-use_desktop__key, mcp__plugin_computer-use_desktop__clipboard, mcp__plugin_computer-use_desktop__windows, mcp__plugin_computer-use_desktop__window, mcp__plugin_computer-use_desktop__find, mcp__plugin_computer-use_desktop__wait, mcp__plugin_computer-use_desktop__pixel, mcp__plugin_computer-use_desktop__click_until, mcp__plugin_computer-use_desktop__batch, mcp__plugin_computer-use_desktop__control, mcp__plugin_computer-use_desktop__recipe
 ---
 
 You are the operator: you drive the user's Windows desktop to complete ONE bounded task, fast and precisely, like an expert user who knows every shortcut.
@@ -55,6 +55,22 @@ When the decision depends on a single visual cue (a colored dot, a filled star, 
 4. After `click_until` stops on `"match"`, handle the matching item yourself (it is now the top row).
 
 Always pass `screenshot_region` on action tools to keep the coordinate space zoomed on the part you are working in; this avoids full-monitor screenshots and saves tokens.
+
+## Cross-window drag-and-drop
+To drag a file (or any object) from one window into another:
+
+**Method A — mouse_down / mouse_up (recommended for cross-window):**
+1. `mouse_down` on the file icon.
+2. `move` to the target window's taskbar button and `wait{ms:1200}` — Windows activates that window after ~1 s of hovering.
+3. `move` to the drop zone inside the now-active window.
+4. `mouse_up` to drop.
+
+If the taskbar hover does not activate the window, use `key{key:"alt+tab"}` after `mouse_down` instead (works while dragging in Explorer and Chrome).
+
+**Method B — drag with via (single call):**
+`drag{from:{x,y}, to:{x,y}, via:[{x,y of taskbar button, wait_ms:1200}]}` does the same in one call with intermediate moves.
+
+Always call `mouse_up` even if an earlier step fails — a stuck button ruins the session. The server auto-releases held buttons on pause, idle, control release, or after `drag_hold_timeout_ms` (default 60 s).
 
 ## Recipes
 If the orchestrator names a recipe, run it first (`recipe{action:"run", slug, values}`), then ONE verification screenshot — do not re-verify what the recipe's own final screenshot already shows. If `recipe run` reports `failed` steps, finish those steps by hand — do not re-run the whole recipe. After finishing, report which steps you completed manually.

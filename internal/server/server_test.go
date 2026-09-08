@@ -146,6 +146,8 @@ func TestInputSchemasMarkOnlyRequiredFields(t *testing.T) {
 	allowedRequired := map[string]map[string]bool{
 		"screenshot":  {},
 		"monitors":    {},
+		"mouse_down":  {},
+		"mouse_up":    {},
 		"click":       {},
 		"move":        {},
 		"drag":        {"from": true, "to": true},

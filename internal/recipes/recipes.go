@@ -467,6 +467,7 @@ var actionTools = map[string]bool{
 	"click": true, "drag": true, "scroll": true,
 	"type": true, "key": true, "window": true,
 	"wait": true, "click_until": true, "find": true,
+	"mouse_down": true, "mouse_up": true,
 }
 
 // Draft builds a Recipe from a trace of completed actions.

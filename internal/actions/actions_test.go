@@ -208,6 +208,72 @@ func TestMoveToGlidesWithEasingAndEndsExactly(t *testing.T) {
 	}
 }
 
+func TestPressMovesAndHolds(t *testing.T) {
+	a, in, _ := newActor()
+	if err := a.Press(geom.Point{X: 50, Y: 60}, platform.ButtonLeft); err != nil {
+		t.Fatal(err)
+	}
+	want := "move 50,60|down left"
+	if got := strings.Join(in.Calls, "|"); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestReleaseWithoutPointReleasesOnly(t *testing.T) {
+	a, in, _ := newActor()
+	if err := a.Release(nil, platform.ButtonLeft); err != nil {
+		t.Fatal(err)
+	}
+	want := "up left"
+	if got := strings.Join(in.Calls, "|"); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestReleaseWithPointMovesFirst(t *testing.T) {
+	a, in, _ := newActor()
+	p := geom.Point{X: 100, Y: 200}
+	if err := a.Release(&p, platform.ButtonLeft); err != nil {
+		t.Fatal(err)
+	}
+	want := "move 100,200|up left"
+	if got := strings.Join(in.Calls, "|"); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestDragViaInterpolatesWaypointsAndReleases(t *testing.T) {
+	a, in, _ := newActor()
+	from := geom.Point{X: 0, Y: 0}
+	wp := Waypoint{P: geom.Point{X: 100, Y: 0}, WaitMs: 50}
+	to := geom.Point{X: 200, Y: 0}
+	if err := a.DragVia(from, []Waypoint{wp}, to, platform.ButtonLeft, 200*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	calls := in.Calls
+	// must start with move to from, then down
+	if calls[0] != "move 0,0" || calls[1] != "down left" {
+		t.Fatalf("bad start: %v", calls[:3])
+	}
+	// must end with move to 200,0 then up
+	if calls[len(calls)-1] != "up left" || calls[len(calls)-2] != "move 200,0" {
+		t.Fatalf("bad end: %v", calls[len(calls)-3:])
+	}
+	// must have at least 8 intermediate moves to the waypoint
+	movesBeforeWP := 0
+	for _, c := range calls[2:] {
+		if c == "move 100,0" {
+			break
+		}
+		if strings.HasPrefix(c, "move ") {
+			movesBeforeWP++
+		}
+	}
+	if movesBeforeWP < 7 { // at least 8 steps including the final one
+		t.Fatalf("expected >= 8 interpolated moves to waypoint, got %d moves before it; calls: %v", movesBeforeWP, calls)
+	}
+}
+
 func TestMoveToTeleportsWhenDisabledOrTiny(t *testing.T) {
 	a, in, _ := newActor()
 	a.GlideMs = 0

@@ -177,6 +177,50 @@ func (s *Session) capture(spec captureSpec) (*screen.Shot, Meta, error) {
 	return shot, s.metaFor(v), nil
 }
 
+func (s *Session) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+// setHeld records a held mouse button.
+func (s *Session) setHeld(btn platform.MouseButton) {
+	s.mu.Lock()
+	s.heldButton = btn
+	s.heldSince = s.now()
+	s.mu.Unlock()
+}
+
+// clearHeld clears the held button state.
+func (s *Session) clearHeld() {
+	s.mu.Lock()
+	s.heldButton = ""
+	s.heldSince = time.Time{}
+	s.mu.Unlock()
+}
+
+// releaseHeldButton releases any held mouse button (best-effort).
+// Returns the button that was released, or "" if nothing was held.
+func (s *Session) releaseHeldButton() platform.MouseButton {
+	s.mu.Lock()
+	btn := s.heldButton
+	s.heldButton = ""
+	s.heldSince = time.Time{}
+	s.mu.Unlock()
+	if btn != "" {
+		s.actor.In.MouseUp(btn) // best-effort; ignore error
+	}
+	return btn
+}
+
+// heldInfo returns the currently held button and when it was pressed.
+func (s *Session) heldInfo() (platform.MouseButton, time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.heldButton, s.heldSince
+}
+
 func (s *Session) logTiming(tool string, t0 time.Time) {
 	s.log.Printf("tool=%s ms=%d", tool, time.Since(t0).Milliseconds())
 }
@@ -277,10 +321,22 @@ func (s *Session) clearTrace() {
 }
 
 // begin gates an action on the Controller (pause semantics, spec §7) and updates the overlay.
+// It also checks for drag hold timeout and releases the held button on pause.
 func (s *Session) begin(ctx context.Context, action, summary string, rawArgs ...map[string]any) *mcp.CallToolResult {
-	now := time.Now()
+	now := s.now()
+
+	// Check drag hold timeout.
+	if s.cfg.DragHoldTimeoutMs > 0 {
+		btn, since := s.heldInfo()
+		if btn != "" && now.Sub(since) >= time.Duration(s.cfg.DragHoldTimeoutMs)*time.Millisecond {
+			s.releaseHeldButton()
+		}
+	}
+
 	if c := s.d.Controller; c != nil {
 		if c.IsPaused() {
+			// Release held button before reporting pause.
+			s.releaseHeldButton()
 			wctx, cancel := context.WithTimeout(ctx, time.Duration(s.cfg.PauseWaitMs)*time.Millisecond)
 			resumed := c.WaitResume(wctx)
 			cancel()

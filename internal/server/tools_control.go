@@ -74,7 +74,8 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 		return okResult(f, nil), nil, nil
 
 	case "release":
-		// Auto-record before releasing.
+		// Release held button and auto-record before releasing.
+		s.releaseHeldButton()
 		s.autoRecord()
 
 		if c := s.d.Controller; c != nil {
@@ -150,7 +151,8 @@ func (s *Session) autoRecord() {
 	s.mu.Unlock()
 }
 
-// OnRelease performs auto-recording. Called by external hooks (e.g., guard idle transition).
+// OnRelease releases held buttons and performs auto-recording. Called by external hooks (e.g., guard idle transition).
 func (s *Session) OnRelease() {
+	s.releaseHeldButton()
 	s.autoRecord()
 }

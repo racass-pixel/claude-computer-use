@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClickMapsImageToScreenAndReturnsScreenshot(t *testing.T) {
@@ -208,6 +209,147 @@ func TestClickUntilStopsMismatch(t *testing.T) {
 	}
 	if fields["stopped_by"] != "match" {
 		t.Fatalf("stopped_by = %v, want match", fields["stopped_by"])
+	}
+}
+
+func TestMouseDownThenMoveThenMouseUp(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	off := false
+	res, _, _ := h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	fields, _ := decode(t, res)
+	if fields["held_button"] != "left" {
+		t.Fatalf("expected held_button=left, got %v", fields)
+	}
+	btn, _ := h.s.heldInfo()
+	if btn != "left" {
+		t.Fatalf("expected held button left, got %q", btn)
+	}
+	mx, my := 100, 100
+	h.s.toolMove(context.Background(), nil, MoveIn{X: &mx, Y: &my, Screenshot: &off})
+	ux, uy := 200, 200
+	h.s.toolMouseUp(context.Background(), nil, MouseUpIn{X: &ux, Y: &uy, Screenshot: &off})
+	btn, _ = h.s.heldInfo()
+	if btn != "" {
+		t.Fatalf("expected no held button after mouse_up, got %q", btn)
+	}
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.HasPrefix(got, "move 960,540|down left") {
+		t.Fatalf("expected sequence to start with move+down, got %q", got)
+	}
+	if !strings.HasSuffix(got, "up left") {
+		t.Fatalf("expected sequence to end with up, got %q", got)
+	}
+}
+
+func TestClickWhileHeldReleasesFirst(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	off := false
+	h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	h.in.Calls = nil
+	res, _, _ := h.s.toolClick(context.Background(), nil, ClickIn{X: &x, Y: &y, Screenshot: &off})
+	fields, _ := decode(t, res)
+	if fields["released_held_button"] != true {
+		t.Fatalf("expected released_held_button=true, got %v", fields)
+	}
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.HasPrefix(got, "up left|") {
+		t.Fatalf("expected calls to start with up left (release held), got %q", got)
+	}
+}
+
+func TestMouseUpAtCursor(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	off := false
+	h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	h.in.Calls = nil
+	h.s.toolMouseUp(context.Background(), nil, MouseUpIn{Screenshot: &off})
+	got := strings.Join(h.in.Calls, "|")
+	if got != "up left" {
+		t.Fatalf("expected just 'up left', got %q", got)
+	}
+}
+
+func TestDragWithVia(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	off := false
+	fx, fy := 100, 100
+	wx, wy := 400, 400
+	tx, ty := 700, 700
+	res, _, _ := h.s.toolDrag(context.Background(), nil, DragIn{
+		From:       PointIn{X: &fx, Y: &fy},
+		To:         PointIn{X: &tx, Y: &ty},
+		Via:        []WaypointIn{{X: &wx, Y: &wy, WaitMs: 50}},
+		Screenshot: &off,
+	})
+	fields, _ := decode(t, res)
+	if fields["ok"] != true {
+		t.Fatalf("drag with via failed: %v", fields)
+	}
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.Contains(got, "down left") || !strings.HasSuffix(got, "up left") {
+		t.Fatalf("bad drag via sequence: %q", got)
+	}
+}
+
+func TestControlReleaseReleasesHeldButton(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	off := false
+	h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	h.in.Calls = nil
+	h.s.toolControl(context.Background(), nil, ControlIn{Action: "release"})
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.Contains(got, "up left") {
+		t.Fatalf("control release must release held button, got %q", got)
+	}
+	btn, _ := h.s.heldInfo()
+	if btn != "" {
+		t.Fatalf("held button must be cleared, got %q", btn)
+	}
+}
+
+func TestOnReleaseReleasesHeldButton(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	off := false
+	h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	h.in.Calls = nil
+	h.s.OnRelease()
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.Contains(got, "up left") {
+		t.Fatalf("OnRelease must release held button, got %q", got)
+	}
+}
+
+func TestDragHoldTimeout(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	h.s.cfg.DragHoldTimeoutMs = 100 // very short for testing
+	x, y := 683, 384
+	off := false
+	h.s.toolMouseDown(context.Background(), nil, MouseDownIn{X: &x, Y: &y, Screenshot: &off})
+	// Inject a clock that's past the timeout.
+	h.s.Now = func() time.Time { return time.Now().Add(200 * time.Millisecond) }
+	h.in.Calls = nil
+	// Any begin() call should auto-release.
+	mx, my := 100, 100
+	h.s.toolMove(context.Background(), nil, MoveIn{X: &mx, Y: &my, Screenshot: &off})
+	got := strings.Join(h.in.Calls, "|")
+	if !strings.Contains(got, "up left") {
+		t.Fatalf("timeout must release held button, got %q", got)
+	}
+	btn, _ := h.s.heldInfo()
+	if btn != "" {
+		t.Fatalf("held button must be cleared after timeout, got %q", btn)
 	}
 }
 

@@ -74,7 +74,7 @@ By default, only Esc Esc takes control back. Set `auto_pause: true` in the confi
 
 ## Tools
 
-The plugin exposes 18 MCP tools under the server name `desktop`:
+The plugin exposes 20 MCP tools under the server name `desktop`:
 
 | Tool | Purpose | Key arguments |
 |---|---|---|
@@ -82,7 +82,9 @@ The plugin exposes 18 MCP tools under the server name `desktop`:
 | `monitors` | List monitors with rects, DPI scale, cursor and foreground info | — |
 | `click` | Click at x,y or on a `find` element | `x`, `y`, `element`, `button`, `count`, `modifiers` |
 | `move` | Move the mouse (hover) | `x`, `y`, `element` |
-| `drag` | Drag from one point to another (drag-and-drop, selections, sliders) | `from`, `to`, `button`, `duration_ms` |
+| `mouse_down` | Press and hold a mouse button (for cross-window drag-and-drop) | `x`, `y`, `element`, `button` |
+| `mouse_up` | Release a held mouse button, optionally at x,y | `x`, `y`, `element`, `button` |
+| `drag` | Drag from one point to another; supports `via` waypoints for cross-window drags | `from`, `to`, `via`, `button`, `duration_ms`, `hold_ms` |
 | `scroll` | Scroll the mouse wheel | `x`, `y`, `dy`, `dx` |
 | `type` | Type text into the focused control (Unicode, any language) | `text`, `mode` |
 | `key` | Press a chord or chord sequence | `keys` (`"ctrl+s"` or `["win+r","enter"]`) |
@@ -127,6 +129,7 @@ Every key can also be set via an environment variable (`CU_` prefix, uppercase, 
 | `idle_release_ms` | `120000` | `CU_IDLE_RELEASE_MS` | Hide overlay after this many ms of inactivity |
 | `pause_wait_ms` | `20000` | `CU_PAUSE_WAIT_MS` | How long an action waits for the user to hand back before returning an error |
 | `paste_threshold` | `200` | `CU_PASTE_THRESHOLD` | Character count above which `type` uses clipboard paste |
+| `drag_hold_timeout_ms` | `60000` | `CU_DRAG_HOLD_TIMEOUT_MS` | Auto-release a held mouse button after this many ms (safety net) |
 | `log_file` | *(empty)* | `CU_LOG_FILE` | Path to a log file (empty = stderr only) |
 
 ## How it works
