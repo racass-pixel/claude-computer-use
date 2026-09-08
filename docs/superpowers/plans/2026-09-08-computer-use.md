@@ -1180,7 +1180,7 @@ func TestViewOffsetOnSecondMonitorAndRegionZoom(t *testing.T) {
 	if z.Image != (geom.Size{W: 400, H: 200}) {
 		t.Fatalf("zoom image = %v", z.Image)
 	}
-	if got := z.ToScreen(geom.Point{X: 400, Y: 200}); got != (geom.Point{X: 300, Y: 200}) {
+	if got := z.ToScreen(geom.Point{X: 400, Y: 200}); got != (geom.Point{X: 299, Y: 199}) { // clamped to the last screen pixel of the view
 		t.Fatalf("zoom ToScreen = %v", got)
 	}
 	if got := z.RectToImage(geom.Rect{X: 150, Y: 120, W: 10, H: 5}); got != (geom.Rect{X: 100, Y: 40, W: 20, H: 10}) {
@@ -3571,7 +3571,7 @@ func TestScreenshotRegionZoomsAndSecondMonitorOffsets(t *testing.T) {
 	res, _, _ = h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{Region: &RegionIn{X: 100, Y: 100, W: 200, H: 100}})
 	fields, _ = decode(t, res)
 	size := fields["image"].([]any)
-	if size[0] != float64(400) || size[1] != float64(200) { // 2x zoom
+	if size[0] != float64(562) || size[1] != float64(282) { // region 200x100 image px = 281x141 screen px, zoomed 2x
 		t.Fatalf("zoomed image = %v", size)
 	}
 	v := h.s.currentView()
@@ -7308,9 +7308,9 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-type strings struct{ Title, Sub, PausedTitle, PausedSub string }
+type hudStrings struct{ Title, Sub, PausedTitle, PausedSub string }
 
-var texts = map[string]strings{
+var texts = map[string]hudStrings{
 	"en": {"Claude is controlling the computer", "%s — take control", "You are in control", "%s — hand back to Claude"},
 	"ru": {"Claude управляет компьютером", "%s — забрать управление", "Управление у вас", "%s — вернуть Claude"},
 }
