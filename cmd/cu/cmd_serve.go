@@ -23,6 +23,7 @@ import (
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/server"
+	"github.com/racass-pixel/claude-computer-use/internal/uia"
 	"github.com/racass-pixel/claude-computer-use/internal/uithread"
 	"github.com/racass-pixel/claude-computer-use/internal/win"
 	"github.com/racass-pixel/claude-computer-use/internal/window"
@@ -141,11 +142,24 @@ func runServe(args []string) error {
 		}
 	}()
 
+	var access *uia.UIA
+	if a, aerr := uia.New(); aerr != nil {
+		logger.Printf("ui automation: %v (find tool will be unavailable)", aerr)
+	} else {
+		access = a
+	}
+	defer func() {
+		if access != nil {
+			access.Close()
+		}
+	}()
+
 	deps := server.Deps{
 		Screen:     screen.New(),
 		Input:      input.New(),
 		Clip:       input.NewClipboard(),
 		Wins:       window.New(),
+		Access:     access,
 		Controller: controller{machine},
 		Overlay:    ov,
 		Version:    version,

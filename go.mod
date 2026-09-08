@@ -3,14 +3,13 @@ module github.com/racass-pixel/claude-computer-use
 go 1.26
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
+	github.com/go-ole/go-ole v1.3.0
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
 )
 
-require (
-	github.com/Microsoft/go-winio v0.6.2 // indirect
-	golang.org/x/text v0.41.0 // indirect
-)
+require golang.org/x/text v0.41.0 // indirect
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect

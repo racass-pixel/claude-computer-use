@@ -56,6 +56,7 @@ func (s *Session) batchable() map[string]batchFn {
 		"wait":      wrap(s.toolWait),
 		"window":    wrap(s.toolWindow),
 		"clipboard": wrap(s.toolClipboard),
+		"find":      wrap(s.toolFind),
 	}
 }
 

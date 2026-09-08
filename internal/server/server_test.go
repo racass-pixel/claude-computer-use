@@ -155,6 +155,7 @@ func TestInputSchemasMarkOnlyRequiredFields(t *testing.T) {
 		"clipboard":  {"action": true},
 		"windows":    {},
 		"window":     {"action": true},
+		"find":       {},
 		"wait":       {},
 		"batch":      {"actions": true},
 		"control":    {"action": true},

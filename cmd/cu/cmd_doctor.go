@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
+	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
+	"github.com/racass-pixel/claude-computer-use/internal/uia"
 	"github.com/racass-pixel/claude-computer-use/internal/win"
 	"github.com/racass-pixel/claude-computer-use/internal/window"
 )
@@ -44,6 +47,19 @@ func runDoctor(args []string) error {
 			mark = "*"
 		}
 		fmt.Printf(" %s %d %-20s %-9s %v %q\n", mark, w.ID, w.Process, w.State, w.Rect, w.Title)
+	}
+	if u, err := uia.New(); err != nil {
+		fmt.Println("ui automation: FAIL", err)
+	} else {
+		fg := win.ForegroundWindow()
+		t0 := time.Now()
+		els, err := u.Find(platform.FindQuery{Window: fg, Limit: 8})
+		fmt.Printf("ui automation: %d elements in foreground window in %dms (err=%v)\n", len(els), time.Since(t0).Milliseconds(), err)
+		for _, e := range els {
+			fmt.Printf("  %-10s %q %v\n", e.Role, e.Name, e.Rect)
+		}
+		u.Release(nil)
+		u.Close()
 	}
 	return nil
 }

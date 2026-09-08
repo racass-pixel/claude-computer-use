@@ -13,11 +13,12 @@ import (
 )
 
 type WaitIn struct {
-	Ms         int    `json:"ms,omitempty" jsonschema:"plain sleep in milliseconds"`
-	Window     string `json:"window,omitempty" jsonschema:"wait until a window matching this regexp (title or process) exists"`
-	Stable     *bool  `json:"stable,omitempty" jsonschema:"wait until the active monitor stops changing (animations, page loads)"`
-	TimeoutMs  int    `json:"timeout_ms,omitempty" jsonschema:"give up after this long (default 10000)"`
-	Screenshot *bool  `json:"screenshot,omitempty" jsonschema:"return a screenshot when done (default true)"`
+	Ms         int     `json:"ms,omitempty" jsonschema:"plain sleep in milliseconds"`
+	Window     string  `json:"window,omitempty" jsonschema:"wait until a window matching this regexp (title or process) exists"`
+	Stable     *bool   `json:"stable,omitempty" jsonschema:"wait until the active monitor stops changing (animations, page loads)"`
+	Element    *FindIn `json:"element,omitempty" jsonschema:"wait until find returns at least one element for this query"`
+	TimeoutMs  int     `json:"timeout_ms,omitempty" jsonschema:"give up after this long (default 10000)"`
+	Screenshot *bool   `json:"screenshot,omitempty" jsonschema:"return a screenshot when done (default true)"`
 }
 
 // frameDiff is the mean absolute RGB difference (0..255) between two equally sized frames.
@@ -72,6 +73,17 @@ func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in Wai
 				return s.finish("wait", t0, map[string]any{"condition": cond, "matched": map[string]any{"id": w.ID, "title": w.Title, "process": w.Process}}, s.wantShot(in.Screenshot), 50*time.Millisecond), nil, nil
 			}
 			if time.Now().After(deadline) || !sleepCtx(ctx, 150*time.Millisecond) {
+				break
+			}
+		}
+	case in.Element != nil:
+		cond = "element"
+		for {
+			out, _, err := s.findElements(*in.Element)
+			if err == nil && len(out) > 0 {
+				return s.finish("wait", t0, map[string]any{"condition": cond, "elements": out, "count": len(out)}, s.wantShot(in.Screenshot), 50*time.Millisecond), nil, nil
+			}
+			if time.Now().After(deadline) || !sleepCtx(ctx, 200*time.Millisecond) {
 				break
 			}
 		}
