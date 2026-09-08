@@ -69,11 +69,16 @@ func runDoctor(args []string) error {
 		}
 	}
 
-	// Overlay capture exclusion mode.
-	if win.CaptureExclusionSupported {
-		fmt.Println("overlay capture exclusion: native")
+	// Overlay capture exclusion: probe by creating a tiny hidden overlay window.
+	if hwnd, cerr := win.CreateOverlayWindow(-100, -100, 8, 8); cerr != nil {
+		fmt.Printf("overlay capture exclusion: unknown (%v)\n", cerr)
 	} else {
-		fmt.Println("overlay capture exclusion: hidden-during-capture")
+		win.DestroyWindow(hwnd)
+		if win.CaptureExclusionSupported {
+			fmt.Println("overlay capture exclusion: native")
+		} else {
+			fmt.Println("overlay capture exclusion: hidden-during-capture (fallback: overlay is hidden while capturing)")
+		}
 	}
 
 	// Recipes directory.
