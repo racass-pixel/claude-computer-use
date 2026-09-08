@@ -19,7 +19,16 @@ type ScreenshotIn struct {
 
 func (s *Session) toolScreenshot(ctx context.Context, req *mcp.CallToolRequest, in ScreenshotIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot, meta, err := s.capture(captureSpec{monitor: in.Monitor, region: in.Region, scale: in.Scale, format: in.Format})
+	scale := in.Scale
+	if scale != 0 {
+		if scale < 0.1 {
+			scale = 0.1
+		}
+		if scale > 2 {
+			scale = 2
+		}
+	}
+	shot, meta, err := s.capture(captureSpec{monitor: in.Monitor, region: in.Region, scale: scale, format: in.Format})
 	if err != nil {
 		return errResult("screenshot_failed", err.Error()), nil, nil
 	}

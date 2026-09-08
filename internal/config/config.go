@@ -29,7 +29,13 @@ type Config struct {
 	BorderShimmer      *bool   `json:"border_shimmer,omitempty"` // nil = true (default on)
 	MouseGlideMs       int     `json:"mouse_glide_ms"`
 	DragHoldTimeoutMs  int     `json:"drag_hold_timeout_ms"`
+	RecipesAutoRecord  *bool   `json:"recipes_auto_record,omitempty"` // nil = true (default on)
 	LogFile            string  `json:"log_file"`
+}
+
+// RecipesAutoRecordEnabled returns whether auto-recording of recipes is enabled (default true).
+func (c Config) RecipesAutoRecordEnabled() bool {
+	return c.RecipesAutoRecord == nil || *c.RecipesAutoRecord
 }
 
 // BorderShimmerEnabled returns whether the glow shimmer is enabled (default true).
@@ -40,7 +46,7 @@ func (c Config) BorderShimmerEnabled() bool {
 func Default() Config {
 	return Config{
 		Hotkey: "esc esc", AutoPause: false, MouseThresholdPx: 12,
-		ScreenshotLongEdge: 1366, ScreenshotFormat: "png", JPEGQuality: 85,
+		ScreenshotLongEdge: 1366, ScreenshotFormat: "jpeg", JPEGQuality: 90,
 		Lang: "auto", Accent: "#D97757", Overlay: true,
 		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200,
 		BorderThickness: 56, BorderIntensity: 0.85, MouseGlideMs: 220, DragHoldTimeoutMs: 60000,
@@ -154,6 +160,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		num("CU_DRAG_HOLD_TIMEOUT_MS", &c.DragHoldTimeoutMs),
 		float("CU_BORDER_INTENSITY", &c.BorderIntensity),
 		boolPtr("CU_BORDER_SHIMMER", &c.BorderShimmer),
+		boolPtr("CU_RECIPES_AUTO_RECORD", &c.RecipesAutoRecord),
 	} {
 		if e != nil {
 			return e
@@ -172,6 +179,21 @@ func (c Config) validate() error {
 	case "auto", "ru", "en":
 	default:
 		return fmt.Errorf("lang must be auto, ru or en, got %q", c.Lang)
+	}
+	if c.BorderIntensity < 0 || c.BorderIntensity > 1 {
+		return fmt.Errorf("border_intensity must be 0..1, got %v", c.BorderIntensity)
+	}
+	if c.MouseGlideMs < 0 || c.MouseGlideMs > 2000 {
+		return fmt.Errorf("mouse_glide_ms must be 0..2000, got %d", c.MouseGlideMs)
+	}
+	if c.JPEGQuality < 1 || c.JPEGQuality > 100 {
+		return fmt.Errorf("jpeg_quality must be 1..100, got %d", c.JPEGQuality)
+	}
+	if c.ScreenshotLongEdge < 256 || c.ScreenshotLongEdge > 4096 {
+		return fmt.Errorf("screenshot_long_edge must be 256..4096, got %d", c.ScreenshotLongEdge)
+	}
+	if c.DragHoldTimeoutMs > 0 && c.DragHoldTimeoutMs < 1000 {
+		return fmt.Errorf("drag_hold_timeout_ms must be >= 1000 (or 0 to disable), got %d", c.DragHoldTimeoutMs)
 	}
 	return nil
 }

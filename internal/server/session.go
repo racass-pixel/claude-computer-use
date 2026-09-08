@@ -325,15 +325,33 @@ func (s *Session) clearTrace() {
 func (s *Session) begin(ctx context.Context, action, summary string, rawArgs ...map[string]any) *mcp.CallToolResult {
 	now := s.now()
 
+	// Reset auto-release tracking.
+	s.mu.Lock()
+	s.autoReleased = false
+	s.releasedButton = ""
+	s.mu.Unlock()
+
 	// Check drag hold timeout.
 	if s.cfg.DragHoldTimeoutMs > 0 {
 		btn, since := s.heldInfo()
 		if btn != "" && now.Sub(since) >= time.Duration(s.cfg.DragHoldTimeoutMs)*time.Millisecond {
-			s.releaseHeldButton()
+			released := s.releaseHeldButton()
+			if released != "" {
+				s.mu.Lock()
+				s.autoReleased = true
+				s.releasedButton = released
+				s.mu.Unlock()
+			}
 		}
 	}
 
 	if c := s.d.Controller; c != nil {
+		st := c.Status()
+		// If userHold is latched, refuse immediately — no waiting.
+		if st.UserHold && st.State != "controlling" {
+			s.releaseHeldButton()
+			return errResult("user_took_control", "The user took control of the computer. Press Esc Esc or send a new message to resume. Stop now, report what was done and what remains, and wait.")
+		}
 		if c.IsPaused() {
 			// Release held button before reporting pause.
 			s.releaseHeldButton()
@@ -350,7 +368,9 @@ func (s *Session) begin(ctx context.Context, action, summary string, rawArgs ...
 			}
 			return okResult(f, shot)
 		}
-		c.Acquire(now)
+		if !c.Acquire(now) {
+			return errResult("user_took_control", "The user took control of the computer. Press Esc Esc or send a new message to resume. Stop now, report what was done and what remains, and wait.")
+		}
 		c.Touch(now)
 	}
 	var sa map[string]any
@@ -402,7 +422,17 @@ func (s *Session) finish(action string, t0 time.Time, extra map[string]any, shot
 	}
 	s.appendTrace(action, summary, args, ok, ms)
 
+	// T24-2: report auto-release.
+	s.mu.Lock()
+	autoReleased := s.autoReleased
+	releasedBtn := s.releasedButton
+	s.mu.Unlock()
+
 	f := map[string]any{"action": action}
+	if autoReleased {
+		f["auto_released"] = true
+		f["released_button"] = string(releasedBtn)
+	}
 	for k, v := range extra {
 		f[k] = v
 	}

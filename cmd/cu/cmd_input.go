@@ -36,7 +36,7 @@ func runInput(args []string) error {
 		}
 		return a.Click(geom.Point{X: atoi(args[1]), Y: atoi(args[2])}, btn, 1, nil)
 	case "drag":
-		return a.Drag(geom.Point{X: atoi(args[1]), Y: atoi(args[2])}, geom.Point{X: atoi(args[3]), Y: atoi(args[4])}, platform.ButtonLeft, 300*time.Millisecond)
+		return a.Drag(geom.Point{X: atoi(args[1]), Y: atoi(args[2])}, geom.Point{X: atoi(args[3]), Y: atoi(args[4])}, platform.ButtonLeft, 300*time.Millisecond, 80*time.Millisecond)
 	case "type":
 		time.Sleep(2 * time.Second) // time to focus a text field
 		return a.Type(strings.Join(args[1:], " "), "auto", 0)

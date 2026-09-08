@@ -79,7 +79,7 @@ func TestClickWithModifiersWrapsPress(t *testing.T) {
 
 func TestDragInterpolatesAndReleasesAtTarget(t *testing.T) {
 	a, in, _ := newActor()
-	_ = a.Drag(geom.Point{X: 0, Y: 0}, geom.Point{X: 100, Y: 50}, platform.ButtonLeft, 250*time.Millisecond)
+	_ = a.Drag(geom.Point{X: 0, Y: 0}, geom.Point{X: 100, Y: 50}, platform.ButtonLeft, 250*time.Millisecond, 80*time.Millisecond)
 	calls := in.Calls
 	if calls[0] != "move 0,0" || calls[1] != "down left" || calls[len(calls)-1] != "up left" || calls[len(calls)-2] != "move 100,50" {
 		t.Fatalf("bad drag sequence: %v", calls)
@@ -139,7 +139,7 @@ func TestDragReleasesButtonWhenMoveFailsAfterDown(t *testing.T) {
 	a, in, _ := newActor()
 	failer := &failOnNthMouseMove{Input: in, failAt: 3} // 1st move (from) ok, then down, then 2nd loop move fails
 	a.In = failer
-	err := a.Drag(geom.Point{X: 0, Y: 0}, geom.Point{X: 100, Y: 50}, platform.ButtonLeft, 250*time.Millisecond)
+	err := a.Drag(geom.Point{X: 0, Y: 0}, geom.Point{X: 100, Y: 50}, platform.ButtonLeft, 250*time.Millisecond, 80*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -247,7 +247,7 @@ func TestDragViaInterpolatesWaypointsAndReleases(t *testing.T) {
 	from := geom.Point{X: 0, Y: 0}
 	wp := Waypoint{P: geom.Point{X: 100, Y: 0}, WaitMs: 50}
 	to := geom.Point{X: 200, Y: 0}
-	if err := a.DragVia(from, []Waypoint{wp}, to, platform.ButtonLeft, 200*time.Millisecond); err != nil {
+	if err := a.DragVia(from, []Waypoint{wp}, to, platform.ButtonLeft, 200*time.Millisecond, 80*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	calls := in.Calls

@@ -26,6 +26,9 @@ func (s *Session) controlStatus() map[string]any {
 		f["paused"] = st.State == "paused"
 		f["hotkey"] = st.Hotkey
 		f["idle_ms"] = st.IdleMs
+		if st.UserHold {
+			f["user_hold"] = true
+		}
 	}
 	if m := s.activeMonitor(); m.ID != 0 {
 		f["active_monitor"] = m.ID
@@ -39,13 +42,14 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 	case "", "status":
 	case "acquire":
 		if c := s.d.Controller; c != nil {
-			if c.IsPaused() {
-				return errResult("user_took_control", "The user has control. Wait for the user to hand it back or to ask you to continue."), nil, nil
+			st := c.Status()
+			if st.UserHold || c.IsPaused() {
+				return errResult("user_took_control", "The user has control. Press Esc Esc or send a new message to resume. Wait for the user to hand it back."), nil, nil
 			}
 			c.Acquire(now)
 		}
 		if in.Task != "" {
-			s.d.Overlay.SetTitle(in.Task)
+			s.d.Overlay.SetTitle(in.Task) // M3: set title before Show to avoid one-frame flash.
 			s.clearTrace()
 
 			// Remember task caption and foreground app for auto-record.
@@ -58,7 +62,7 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 			s.mu.Unlock()
 		}
 		if m := s.activeMonitor(); m.ID != 0 {
-			s.d.Overlay.Show(m, platform.OverlayControlling)
+			s.d.Overlay.Show(m, platform.OverlayControlling) // after SetTitle
 		}
 
 		// Search for matching recipes and return suggestions.
@@ -75,7 +79,13 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 
 	case "release":
 		// Release held button and auto-record before releasing.
-		s.releaseHeldButton()
+		releasedBtn := s.releaseHeldButton()
+		if releasedBtn != "" {
+			s.mu.Lock()
+			s.autoReleased = true
+			s.releasedButton = releasedBtn
+			s.mu.Unlock()
+		}
 		s.autoRecord()
 
 		if c := s.d.Controller; c != nil {
@@ -128,6 +138,9 @@ func (s *Session) autoRecord() {
 	if s.d.Recipes == nil {
 		return
 	}
+	if !s.cfg.RecipesAutoRecordEnabled() {
+		return
+	}
 	s.mu.Lock()
 	caption := s.taskCaption
 	app := s.taskApp
@@ -144,7 +157,12 @@ func (s *Session) autoRecord() {
 		return
 	}
 
-	_, _ = s.d.Recipes.Save(draft)
+	saved, err := s.d.Recipes.Save(draft)
+	if err != nil {
+		s.log.Printf("recipe auto-record failed: %v", err)
+	} else {
+		s.log.Printf("recipe auto-recorded: %s", saved.Slug)
+	}
 
 	s.mu.Lock()
 	s.jobRecorded = true

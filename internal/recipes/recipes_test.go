@@ -386,7 +386,7 @@ func TestDraftCollapsesWaitsAndParametrises(t *testing.T) {
 			prevWait = false
 		}
 	}
-	// Check long type text was parameterised
+	// C1: ALL type text is now parameterised (not just > 3 words).
 	if len(draft.Params) != 1 || draft.Params[0] != "text1" {
 		t.Fatalf("params = %v, want [text1]", draft.Params)
 	}
@@ -395,6 +395,10 @@ func TestDraftCollapsesWaitsAndParametrises(t *testing.T) {
 		if s.Tool == "type" {
 			if s.Args["text"] != "{{text1}}" {
 				t.Fatalf("type text = %v, want {{text1}}", s.Args["text"])
+			}
+			// C1: type summaries must NOT appear in Note.
+			if s.Note != "" {
+				t.Fatalf("type step Note must be empty (C1), got %q", s.Note)
 			}
 			found = true
 		}
@@ -419,6 +423,41 @@ func TestDraftInsertsWaitAfterWinKey(t *testing.T) {
 	}
 	if draft.Steps[1].Args["stable"] != true {
 		t.Fatal("inserted wait should have stable:true")
+	}
+}
+
+func TestDraftSensitiveTypeUsesSecretParam(t *testing.T) {
+	trace := []TraceEntry{
+		{Tool: "type", Args: map[string]any{"text": "hunter2", "sensitive": true}, OK: true},
+		{Tool: "key", Args: map[string]any{"key": "enter"}, OK: true},
+	}
+	draft := Draft(trace, "Login", "", "chrome.exe")
+	if len(draft.Params) != 1 || draft.Params[0] != "secret1" {
+		t.Fatalf("params = %v, want [secret1]", draft.Params)
+	}
+	for _, s := range draft.Steps {
+		if s.Tool == "type" {
+			if s.Args["text"] != "{{secret1}}" {
+				t.Fatalf("sensitive type text = %v, want {{secret1}}", s.Args["text"])
+			}
+		}
+	}
+}
+
+func TestDraftAlwaysParametrisesAllTypeText(t *testing.T) {
+	trace := []TraceEntry{
+		{Tool: "type", Args: map[string]any{"text": "hi"}, OK: true}, // short text
+	}
+	draft := Draft(trace, "Short", "", "")
+	if len(draft.Params) != 1 || draft.Params[0] != "text1" {
+		t.Fatalf("even short text must be parameterised, params = %v", draft.Params)
+	}
+	for _, s := range draft.Steps {
+		if s.Tool == "type" {
+			if s.Args["text"] != "{{text1}}" {
+				t.Fatalf("short type text = %v, want {{text1}}", s.Args["text"])
+			}
+		}
 	}
 }
 

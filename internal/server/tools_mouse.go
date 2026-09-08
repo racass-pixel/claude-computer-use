@@ -216,11 +216,15 @@ func (s *Session) toolDrag(ctx context.Context, req *mcp.CallToolRequest, in Dra
 	if early := s.begin(ctx, "drag", fmt.Sprintf("drag|→ %d,%d", to.X, to.Y), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
+	holdMs := in.HoldMs
+	if holdMs <= 0 {
+		holdMs = 80
+	}
 	var dragErr error
 	if len(waypoints) > 0 {
-		dragErr = s.actor.DragVia(from, waypoints, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond)
+		dragErr = s.actor.DragVia(from, waypoints, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond, time.Duration(holdMs)*time.Millisecond)
 	} else {
-		dragErr = s.actor.Drag(from, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond)
+		dragErr = s.actor.Drag(from, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond, time.Duration(holdMs)*time.Millisecond)
 	}
 	if dragErr != nil {
 		return errResult("input_failed", dragErr.Error()), nil, nil
@@ -420,6 +424,10 @@ func (s *Session) toolClickUntil(ctx context.Context, req *mcp.CallToolRequest, 
 			stoppedBy = "match"
 			break
 		}
+		// Move to click point before each click (I5: cursor may have moved).
+		if err := s.actor.In.MouseMove(clickPt); err != nil {
+			return errResult("input_failed", err.Error()), nil, nil
+		}
 		// Click: MouseDown + MouseUp at the point (no glide, no settle).
 		if err := s.actor.In.MouseDown(btn); err != nil {
 			return errResult("input_failed", err.Error()), nil, nil
@@ -428,8 +436,11 @@ func (s *Session) toolClickUntil(ctx context.Context, req *mcp.CallToolRequest, 
 			return errResult("input_failed", err.Error()), nil, nil
 		}
 		clicks++
-		// Sleep interval to let the UI update.
-		time.Sleep(time.Duration(interval) * time.Millisecond)
+		// Sleep interval to let the UI update; cancel-aware (I5).
+		if !sleepCtx(ctx, time.Duration(interval)*time.Millisecond) {
+			stoppedBy = "cancelled"
+			break
+		}
 	}
 
 	ok := stoppedBy != "paused"

@@ -38,6 +38,7 @@ const (
 	ReasonRelease       Reason = "release"
 	ReasonResume        Reason = "resume"
 	ReasonPrompt        Reason = "prompt"
+	ReasonCtl           Reason = "ctl"
 )
 
 type Transition struct {
@@ -56,9 +57,10 @@ type Config struct {
 }
 
 type Status struct {
-	State  string
-	Hotkey string
-	IdleMs int64
+	State    string
+	Hotkey   string
+	IdleMs   int64
+	UserHold bool
 }
 
 type Machine struct {
@@ -74,6 +76,7 @@ type Machine struct {
 	lastMouse     geom.Point
 	haveMouse     bool
 
+	userHold bool          // set on user-initiated pause (hotkey/physical); only Resume clears it
 	resumeCh chan struct{} // closed when leaving Paused
 }
 
@@ -115,12 +118,18 @@ func (m *Machine) set(to State, r Reason, now time.Time) {
 func (m *Machine) State() State   { m.mu.Lock(); defer m.mu.Unlock(); return m.state }
 func (m *Machine) IsPaused() bool { return m.State() == Paused }
 
-func (m *Machine) Acquire(now time.Time) {
+// Acquire transitions Idle→Controlling. Returns false if userHold is latched
+// (the user must Resume before the model may acquire again).
+func (m *Machine) Acquire(now time.Time) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.userHold {
+		return false
+	}
 	if m.state == Idle {
 		m.set(Controlling, ReasonAction, now)
 	}
+	return true
 }
 
 func (m *Machine) Touch(now time.Time) {
@@ -129,26 +138,46 @@ func (m *Machine) Touch(now time.Time) {
 	m.mu.Unlock()
 }
 
+// Release transitions to Idle but keeps the userHold latch (the model
+// cannot re-acquire until the user actively Resumes).
 func (m *Machine) Release(now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.set(Idle, ReasonRelease, now)
 }
 
+// Pause transitions Controlling→Paused and sets userHold if the pause is
+// user-initiated (hotkey, physical input, or ctl).
 func (m *Machine) Pause(now time.Time, r Reason) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state == Controlling {
 		m.set(Paused, r, now)
 	}
+	// User-initiated pause reasons set the latch.
+	if isUserReason(r) {
+		m.userHold = true
+	}
 }
 
+// Resume transitions Paused→Controlling and clears the userHold latch.
+// This is the ONLY way to clear the latch.
 func (m *Machine) Resume(now time.Time, r Reason) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.userHold = false
 	if m.state == Paused {
 		m.set(Controlling, r, now)
 	}
+}
+
+// isUserReason returns true for reasons initiated by the human user.
+func isUserReason(r Reason) bool {
+	switch r {
+	case ReasonHotkey, ReasonPhysicalKey, ReasonPhysicalMouse, ReasonCtl:
+		return true
+	}
+	return false
 }
 
 func (m *Machine) CheckIdle(now time.Time) {
@@ -174,7 +203,10 @@ func (m *Machine) HandleEvent(ev Event) {
 			switch m.state {
 			case Controlling:
 				m.set(Paused, ReasonHotkey, ev.At)
+				m.userHold = true
 			case Paused:
+				// Hotkey resume clears the latch (same as Resume).
+				m.userHold = false
 				m.set(Controlling, ReasonHotkey, ev.At)
 			}
 			return
@@ -188,8 +220,10 @@ func (m *Machine) HandleEvent(ev Event) {
 		if m.taps.Involves(ev.VK) {
 			return // reserved for the gesture
 		}
+		m.userHold = true
 		m.set(Paused, ReasonPhysicalKey, ev.At)
 	case MouseDown:
+		m.userHold = true
 		m.set(Paused, ReasonPhysicalMouse, ev.At)
 	case MouseMove:
 		if !m.haveMouse || ev.At.Sub(m.mouseWinStart) > m.cfg.MouseWindow {
@@ -203,23 +237,29 @@ func (m *Machine) HandleEvent(ev Event) {
 		m.mouseAcc += math.Hypot(dx, dy)
 		m.lastMouse = ev.Pos
 		if m.mouseAcc > float64(m.cfg.MouseThresholdPx) {
+			m.userHold = true
 			m.set(Paused, ReasonPhysicalMouse, ev.At)
 		}
 	}
 }
 
-// WaitResume blocks until the machine is no longer Paused (true) or ctx ends (false).
+// WaitResume blocks until the machine leaves Paused. Returns true only if
+// Paused→Controlling (i.e. control was handed back); false on timeout or
+// Paused→Idle (release without resume).
 func (m *Machine) WaitResume(ctx context.Context) bool {
 	m.mu.Lock()
 	if m.state != Paused {
 		m.mu.Unlock()
-		return true
+		// Return true only if currently controlling (not idle with latch).
+		return m.State() == Controlling
 	}
 	ch := m.resumeCh
 	m.mu.Unlock()
 	select {
 	case <-ch:
-		return true
+		// resumeCh is closed when leaving Paused. Check whether we went
+		// to Controlling (resume) or Idle (release).
+		return m.State() == Controlling
 	case <-ctx.Done():
 		return false
 	}
@@ -232,5 +272,12 @@ func (m *Machine) Status() Status {
 	if !m.lastAction.IsZero() {
 		idle = time.Since(m.lastAction).Milliseconds()
 	}
-	return Status{State: m.state.String(), Hotkey: m.cfg.Hotkey.String(), IdleMs: idle}
+	return Status{State: m.state.String(), Hotkey: m.cfg.Hotkey.String(), IdleMs: idle, UserHold: m.userHold}
+}
+
+// UserHold returns the current latch state.
+func (m *Machine) UserHold() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.userHold
 }

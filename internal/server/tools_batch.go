@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -84,31 +85,42 @@ func (s *Session) runSteps(ctx context.Context, actions []BatchAction, stopOnErr
 			res, err = fn(ctx, args)
 		}
 		if err == nil && res != nil && res.IsError {
-			if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-				err = fmt.Errorf("%s", tc.Text)
+			if len(res.Content) > 0 {
+				if tc, ok := res.Content[0].(*mcp.TextContent); ok {
+					err = fmt.Errorf("%s", tc.Text)
+				} else {
+					err = fmt.Errorf("step failed")
+				}
 			} else {
 				err = fmt.Errorf("step failed")
 			}
 		}
 		if err != nil {
 			step["ok"] = false
-			step["error"] = err.Error()
+			errStr := err.Error()
+			step["error"] = errStr
 			steps = append(steps, step)
 			allOK = false
+			// Always break on user_took_control, regardless of stopOnError (I6).
+			if strings.Contains(errStr, "user_took_control") {
+				break
+			}
 			if stopOnError {
 				break
 			}
 			continue
 		}
 		step["ok"] = true
-		if tc, ok := res.Content[0].(*mcp.TextContent); ok {
-			var f map[string]any
-			if json.Unmarshal([]byte(tc.Text), &f) == nil {
-				if r, ok := f["resumed"]; ok && r == true { // user handed control back mid-batch: stop, re-observe
-					step["resumed"] = true
-					steps = append(steps, step)
-					allOK = false
-					break
+		if len(res.Content) > 0 {
+			if tc, ok := res.Content[0].(*mcp.TextContent); ok {
+				var f map[string]any
+				if json.Unmarshal([]byte(tc.Text), &f) == nil {
+					if r, ok := f["resumed"]; ok && r == true { // user handed control back mid-batch: stop, re-observe
+						step["resumed"] = true
+						steps = append(steps, step)
+						allOK = false
+						break
+					}
 				}
 			}
 		}

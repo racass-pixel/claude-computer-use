@@ -5,10 +5,38 @@ import "testing"
 func TestDefaults(t *testing.T) {
 	c := Default()
 	if c.Hotkey != "esc esc" || c.AutoPause || c.MouseThresholdPx != 12 || c.ScreenshotLongEdge != 1366 ||
-		c.ScreenshotFormat != "png" || c.JPEGQuality != 85 || c.Lang != "auto" || c.Accent != "#D97757" ||
+		c.ScreenshotFormat != "jpeg" || c.JPEGQuality != 90 || c.Lang != "auto" || c.Accent != "#D97757" ||
 		!c.Overlay || c.IdleReleaseMs != 120000 || c.PauseWaitMs != 20000 || c.PasteThreshold != 200 ||
 		c.BorderThickness != 56 || c.MouseGlideMs != 220 || c.BorderIntensity != 0.85 {
 		t.Fatalf("unexpected defaults: %+v", c)
+	}
+}
+
+func TestValidateBounds(t *testing.T) {
+	c := Default()
+	c.BorderIntensity = 1.5
+	if err := c.validate(); err == nil {
+		t.Fatal("border_intensity > 1 must error")
+	}
+	c = Default()
+	c.MouseGlideMs = 3000
+	if err := c.validate(); err == nil {
+		t.Fatal("mouse_glide_ms > 2000 must error")
+	}
+	c = Default()
+	c.JPEGQuality = 0
+	if err := c.validate(); err == nil {
+		t.Fatal("jpeg_quality < 1 must error")
+	}
+	c = Default()
+	c.ScreenshotLongEdge = 100
+	if err := c.validate(); err == nil {
+		t.Fatal("screenshot_long_edge < 256 must error")
+	}
+	c = Default()
+	c.DragHoldTimeoutMs = 500
+	if err := c.validate(); err == nil {
+		t.Fatal("drag_hold_timeout_ms < 1000 (and > 0) must error")
 	}
 }
 

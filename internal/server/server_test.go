@@ -74,8 +74,9 @@ func TestScreenshotActiveMonitorSetsView(t *testing.T) {
 		t.Fatalf("err=%v res=%+v", err, res)
 	}
 	fields, img := decode(t, res)
-	if !bytes.HasPrefix(img, []byte("\x89PNG")) {
-		t.Fatalf("expected PNG image content")
+	// Default format is now JPEG (M7).
+	if !bytes.HasPrefix(img, []byte("\xff\xd8\xff")) {
+		t.Fatalf("expected JPEG image content (default format)")
 	}
 	if fields["monitor"] != float64(1) {
 		t.Fatalf("monitor = %v", fields["monitor"])

@@ -117,11 +117,92 @@ func TestWaitResumeAndRelease(t *testing.T) {
 		t.Fatal("WaitResume must return true after Resume")
 	}
 	m.Pause(at(30), ReasonHotkey)
-	m.Release(at(40))
+	// Release from Paused: WaitResume should return false (Paused→Idle, not Paused→Controlling).
+	go func() { time.Sleep(10 * time.Millisecond); m.Release(at(40)) }()
+	if m.WaitResume(context.Background()) {
+		t.Fatal("WaitResume must return false on Release (Paused→Idle)")
+	}
 	if m.State() != Idle || m.IsPaused() {
 		t.Fatal("Release must reach Idle from Paused")
 	}
 	if st := m.Status(); st.State != "idle" || st.Hotkey != "Esc Esc" {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestUserHoldLatch(t *testing.T) {
+	m, _ := newMachine(true)
+	m.Acquire(at(0))
+
+	// Hotkey pause sets the latch.
+	m.Pause(at(10), ReasonHotkey)
+	if !m.UserHold() {
+		t.Fatal("hotkey pause must set userHold")
+	}
+	if st := m.Status(); !st.UserHold {
+		t.Fatal("Status must report userHold")
+	}
+
+	// Release keeps the latch.
+	m.Release(at(20))
+	if !m.UserHold() {
+		t.Fatal("Release must keep userHold latch")
+	}
+
+	// Acquire refuses while latched.
+	if m.Acquire(at(30)) {
+		t.Fatal("Acquire must refuse while userHold is latched")
+	}
+	if m.State() != Idle {
+		t.Fatal("state should still be idle after refused Acquire")
+	}
+
+	// Resume clears the latch.
+	m.Resume(at(40), ReasonPrompt)
+	if m.UserHold() {
+		t.Fatal("Resume must clear userHold latch")
+	}
+
+	// Acquire succeeds now.
+	if !m.Acquire(at(50)) {
+		t.Fatal("Acquire must succeed after Resume clears latch")
+	}
+	if m.State() != Controlling {
+		t.Fatal("state should be controlling after successful Acquire")
+	}
+}
+
+func TestUserHoldLatchPhysicalInput(t *testing.T) {
+	m, _ := newMachine(true)
+	m.Acquire(at(0))
+
+	// Physical key pause sets the latch.
+	m.HandleEvent(Event{Kind: KeyDown, VK: 0x41, At: at(10)})
+	if m.State() != Paused {
+		t.Fatal("physical key must pause")
+	}
+	if !m.UserHold() {
+		t.Fatal("physical key pause must set userHold")
+	}
+
+	// Esc Esc while paused resumes and clears the latch.
+	m.HandleEvent(Event{Kind: KeyDown, VK: input.VK_ESCAPE, At: at(100)})
+	m.HandleEvent(Event{Kind: KeyDown, VK: input.VK_ESCAPE, At: at(200)})
+	if m.State() != Controlling {
+		t.Fatal("Esc Esc while paused must resume")
+	}
+	if m.UserHold() {
+		t.Fatal("hotkey resume must clear userHold")
+	}
+}
+
+func TestUserHoldLatchCtlReason(t *testing.T) {
+	m, _ := newMachine(false)
+	m.Acquire(at(0))
+
+	// Ctl pause sets the latch.
+	m.Pause(at(10), ReasonCtl)
+	if !m.UserHold() {
+		t.Fatal("ctl pause must set userHold")
 	}
 }

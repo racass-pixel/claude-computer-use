@@ -51,16 +51,19 @@ func runServe(args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { // exit with Claude Code even if stdio is not closed cleanly
-		if ppid, err := win.ParentPID(); err == nil {
-			_ = win.WaitForProcessExit(ppid)
-			logger.Printf("parent %d exited", ppid)
-			cancel()
-			// server.Run may not return if stdin is a console; force exit.
-			time.AfterFunc(500*time.Millisecond, func() {
-				logger.Printf("forcing exit after parent death")
-				os.Exit(0)
-			})
+		ppid, err := win.ParentPID()
+		if err != nil {
+			logger.Printf("parent watch disabled: %v", err)
+			return
 		}
+		_ = win.WaitForProcessExit(ppid)
+		logger.Printf("parent %d exited", ppid)
+		cancel()
+		// server.Run may not return if stdin is a console; force exit.
+		time.AfterFunc(500*time.Millisecond, func() {
+			logger.Printf("forcing exit after parent death")
+			os.Exit(0)
+		})
 	}()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -148,7 +151,7 @@ func runServe(args []string) error {
 				machine.Release(now)
 				return machine.Status(), nil
 			case "pause":
-				machine.Pause(now, guard.ReasonHotkey)
+				machine.Pause(now, guard.ReasonCtl)
 				return machine.Status(), nil
 			}
 			return nil, fmt.Errorf("unknown command %q", cmd)
@@ -208,11 +211,11 @@ func runServe(args []string) error {
 type controller struct{ m *guard.Machine }
 
 func (c controller) IsPaused() bool                      { return c.m.IsPaused() }
-func (c controller) Acquire(now time.Time)               { c.m.Acquire(now) }
+func (c controller) Acquire(now time.Time) bool          { return c.m.Acquire(now) }
 func (c controller) Touch(now time.Time)                 { c.m.Touch(now) }
 func (c controller) Release(now time.Time)               { c.m.Release(now) }
 func (c controller) WaitResume(ctx context.Context) bool { return c.m.WaitResume(ctx) }
 func (c controller) Status() server.ControllerStatus {
 	st := c.m.Status()
-	return server.ControllerStatus{State: st.State, Hotkey: st.Hotkey, IdleMs: st.IdleMs}
+	return server.ControllerStatus{State: st.State, Hotkey: st.Hotkey, IdleMs: st.IdleMs, UserHold: st.UserHold}
 }

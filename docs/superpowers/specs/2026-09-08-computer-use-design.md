@@ -98,6 +98,8 @@ State machine (pure logic, unit-tested with a fake clock): `idle → controlling
 - Idle release: no actions for `idle_release_ms` (120 s) → overlay hides, state `idle`. Hooks `Stop`/`SubagentStop(operator)` → `cu ctl release`. Parent death / EOF → everything is cleaned up.
 - IPC: named pipe `\\.\pipe\claude-computer-use-<pid>`; `cu ctl` sends the command to every pipe with this prefix (safe with several sessions: it is always a user action).
 
+**Decision (C2 — user-hold latch):** A user-initiated pause (hotkey, physical input, or `ctl pause`) sets a `userHold` latch on the guard machine. `Release` (from hooks `Stop`/`SubagentStop`) transitions to Idle but keeps the latch. While the latch is set, `Acquire` returns false and the server's `begin()` returns `user_took_control` immediately (no 20 s wait) with a message instructing the user to press Esc Esc or send a new message. Only `Resume` (hotkey toggle from Paused, `UserPromptSubmit` hook, `cu ctl resume`) clears the latch. `Status()` reports `user_hold: true`. `WaitResume` returns true only on Paused→Controlling, not on Paused→Idle (release).
+
 ## 8. Plugin: agents, skills, hooks
 
 `.claude-plugin/plugin.json`: name `computer-use`, version, description, author, repository, license MIT, keywords.

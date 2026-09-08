@@ -493,19 +493,35 @@ func Draft(trace []TraceEntry, name, description, app string) Recipe {
 			continue
 		}
 
-		// Parameterise long type texts (> 3 words)
+		// ALWAYS parametrise type text (C1: never store verbatim text in recipes).
+		// Sensitive text gets a {{secretN}} param with no default.
 		if e.Tool == "type" {
-			if text, ok := args["text"].(string); ok {
-				if wordCount(text) > 3 {
-					paramN++
-					pname := fmt.Sprintf("text%d", paramN)
-					params = append(params, pname)
-					args["text"] = "{{" + pname + "}}"
+			if text, ok := args["text"].(string); ok && text != "" {
+				paramN++
+				sensitive := false
+				if s, ok := e.Args["sensitive"]; ok {
+					if sb, ok := s.(bool); ok && sb {
+						sensitive = true
+					}
 				}
+				var pname string
+				if sensitive {
+					pname = fmt.Sprintf("secret%d", paramN)
+				} else {
+					pname = fmt.Sprintf("text%d", paramN)
+				}
+				params = append(params, pname)
+				args["text"] = "{{" + pname + "}}"
 			}
 		}
 
-		steps = append(steps, Step{Tool: e.Tool, Args: args, Note: e.Summary})
+		// Never copy type summaries into Note (C1).
+		note := e.Summary
+		if e.Tool == "type" {
+			note = ""
+		}
+
+		steps = append(steps, Step{Tool: e.Tool, Args: args, Note: note})
 
 		// Insert wait{stable:true} after window focus or key win+*
 		needWait := false

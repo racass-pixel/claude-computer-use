@@ -456,7 +456,7 @@ type syncReleaseController struct {
 }
 
 func (c *syncReleaseController) IsPaused() bool                      { return false }
-func (c *syncReleaseController) Acquire(now time.Time)               {}
+func (c *syncReleaseController) Acquire(now time.Time) bool          { return true }
 func (c *syncReleaseController) Touch(now time.Time)                 {}
 func (c *syncReleaseController) WaitResume(ctx context.Context) bool { return true }
 func (c *syncReleaseController) Status() ControllerStatus {

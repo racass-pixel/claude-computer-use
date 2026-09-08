@@ -116,7 +116,8 @@ func TestClickUntilStopsOnMatch(t *testing.T) {
 		t.Fatalf("stopped_by = %v, want match", fields["stopped_by"])
 	}
 	got := strings.Join(h.in.Calls, "|")
-	want := "move 960,540|down left|up left|down left|up left"
+	// I5: move before every click iteration.
+	want := "move 960,540|move 960,540|down left|up left|move 960,540|down left|up left"
 	if got != want {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}

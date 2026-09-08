@@ -3,4 +3,4 @@ bin/*.zip
 dist/
 *.log
 .DS_Store
-cu.exe
+/cu.exe

@@ -13,6 +13,7 @@ import (
 
 type TypeIn struct {
 	Text             string    `json:"text" jsonschema:"text to type into the focused control; newlines press Enter, tabs press Tab"`
+	Sensitive        bool      `json:"sensitive,omitempty" jsonschema:"true for passwords, codes, card numbers, tokens — text is redacted in traces and the HUD shows only a char count"`
 	Mode             string    `json:"mode,omitempty" jsonschema:"auto (default: unicode, paste when long), unicode, paste (clipboard + Ctrl+V), keys (slow per-character for apps that drop fast input)"`
 	DelayMs          int       `json:"delay_ms,omitempty" jsonschema:"delay between characters in ms (default 0)"`
 	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
@@ -37,7 +38,13 @@ func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in Typ
 	if in.Text == "" {
 		return errResult("bad_args", "text is empty"), nil, nil
 	}
-	if early := s.begin(ctx, "type", summarizeText(in.Text), toArgsMap(in)); early != nil {
+	summary := summarizeText(in.Text)
+	args := toArgsMap(in)
+	if in.Sensitive {
+		summary = fmt.Sprintf("Typing · %d chars", len([]rune(in.Text)))
+		args["text"] = "[redacted]"
+	}
+	if early := s.begin(ctx, "type", summary, args); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.Type(in.Text, in.Mode, time.Duration(in.DelayMs)*time.Millisecond); err != nil {

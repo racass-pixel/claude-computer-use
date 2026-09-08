@@ -118,8 +118,8 @@ Every key can also be set via an environment variable (`CU_` prefix, uppercase, 
 | `mouse_threshold_px` | `12` | `CU_MOUSE_THRESHOLD_PX` | Minimum mouse movement (px) to trigger auto-pause |
 | `mouse_glide_ms` | `220` | `CU_MOUSE_GLIDE_MS` | Duration of smooth cursor glide between points (0 = instant) |
 | `screenshot_long_edge` | `1366` | `CU_SCREENSHOT_LONG_EDGE` | Auto-scale screenshots so the long edge is at most this many pixels |
-| `screenshot_format` | `png` | `CU_SCREENSHOT_FORMAT` | Screenshot format: `png` or `jpeg` |
-| `jpeg_quality` | `85` | `CU_JPEG_QUALITY` | JPEG quality (1–100) |
+| `screenshot_format` | `jpeg` | `CU_SCREENSHOT_FORMAT` | Screenshot format: `jpeg` (default, ~5x faster encode) or `png` |
+| `jpeg_quality` | `90` | `CU_JPEG_QUALITY` | JPEG quality (1–100) |
 | `lang` | `auto` | `CU_LANG` | HUD and overlay language: `auto`, `en`, or `ru` |
 | `accent` | `#D97757` | `CU_ACCENT` | Overlay accent color (hex `#RRGGBB`) |
 | `overlay` | `true` | `CU_OVERLAY` | Show the take-over overlay |
@@ -129,7 +129,8 @@ Every key can also be set via an environment variable (`CU_` prefix, uppercase, 
 | `idle_release_ms` | `120000` | `CU_IDLE_RELEASE_MS` | Hide overlay after this many ms of inactivity |
 | `pause_wait_ms` | `20000` | `CU_PAUSE_WAIT_MS` | How long an action waits for the user to hand back before returning an error |
 | `paste_threshold` | `200` | `CU_PASTE_THRESHOLD` | Character count above which `type` uses clipboard paste |
-| `drag_hold_timeout_ms` | `60000` | `CU_DRAG_HOLD_TIMEOUT_MS` | Auto-release a held mouse button after this many ms (safety net) |
+| `drag_hold_timeout_ms` | `60000` | `CU_DRAG_HOLD_TIMEOUT_MS` | Auto-release a held mouse button after this many ms (safety net; min 1000) |
+| `recipes_auto_record` | `true` | `CU_RECIPES_AUTO_RECORD` | Automatically save a draft recipe on control release when the trace has enough steps |
 | `log_file` | *(empty)* | `CU_LOG_FILE` | Path to a log file (empty = stderr only) |
 
 ## How it works
@@ -159,14 +160,18 @@ The server keeps a **view** (monitor, offset, scale) set by each `screenshot`. A
 Recipes are procedural memory — saved sequences of desktop actions that Claude can replay without taking screenshots between steps.
 
 **How it works:**
-1. Before multi-step work, the orchestrator searches for an existing recipe: `recipe{action:"search", query:"..."}`.
-2. If a match is found, the operator replays it with `recipe{action:"run", slug:"...", values:{...}}` and verifies the end state.
-3. After a successful novel task, Claude distils the action trace into a new recipe with `recipe{action:"save", ...}`, using `{{param}}` placeholders for variable parts.
+1. On `control{action:"acquire", task:"..."}`, the server automatically searches for matching recipes and returns `suggested_recipes` — no separate search needed.
+2. If a match scores >= 0.5, the operator replays it with `recipe{action:"run", slug:"...", values:{...}}` and verifies the end state.
+3. On `control{action:"release"}`, the server auto-records a draft recipe from the trace when there are >= 4 action steps, no recipe was run, and a task caption was set. Auto-recording logs to stderr and can be disabled with `recipes_auto_record: false`.
+4. `recipe{action:"draft"}` builds a recipe from the current trace: it keeps action tools, always parametrises `type` text (C1: no verbatim text in saved recipes), uses `{{secretN}}` for sensitive inputs, adds wait steps after app transitions, and collapses consecutive waits.
+5. Manual save for best quality: edit the draft and save with `recipe{action:"save", ...}`.
 
 Recipes are stored as JSON files in `%APPDATA%\claude-computer-use\recipes\`. Use `recipe{action:"list"}` to see them, or `recipe{action:"delete", slug:"..."}` to remove one.
 
 ## Limits
 
+- **Minimum Windows version**: Windows 10 version 1703+ (DPI awareness API). Native capture-exclusion (`SetWindowDisplayAffinity`) requires Windows 10 version 2004+; older versions hide the overlay during each screenshot instead.
+- **Pipe trust model**: the named pipe accepts connections only from processes running as the same user (or local admins).
 - **Elevated windows**: Claude cannot send input to admin/elevated windows or UAC prompts unless `cu.exe` itself runs elevated.
 - **Exclusive fullscreen**: the overlay is not visible in exclusive-fullscreen games; low-level hooks still work.
 - **SetForegroundWindow**: Windows restricts focus stealing; standard workarounds are used but rarely a window only flashes in the taskbar.
@@ -180,6 +185,12 @@ Build:
 
 ```
 go build ./cmd/cu
+```
+
+For a versioned build:
+
+```
+go build -ldflags "-X main.version=0.1.0-dev" ./cmd/cu
 ```
 
 Test:

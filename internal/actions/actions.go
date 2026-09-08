@@ -130,13 +130,16 @@ func (a *Actor) Click(p geom.Point, btn platform.MouseButton, count int, mods []
 	return nil
 }
 
-// Drag presses at from, moves in steps over dur, pauses, and releases at to.
-func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Duration) error {
+// Drag presses at from, moves in steps over dur, pauses holdMs, and releases at to.
+func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur, holdMs time.Duration) error {
 	if btn == "" {
 		btn = platform.ButtonLeft
 	}
 	if dur <= 0 {
 		dur = 250 * time.Millisecond
+	}
+	if holdMs <= 0 {
+		holdMs = 80 * time.Millisecond
 	}
 	if err := a.MoveTo(from); err != nil {
 		return err
@@ -167,7 +170,7 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 		}
 		a.sleep(dur / time.Duration(steps))
 	}
-	a.sleep(80 * time.Millisecond) // let drop targets highlight before releasing
+	a.sleep(holdMs) // let drop targets highlight before releasing
 	released = true
 	return a.In.MouseUp(btn)
 }
@@ -205,12 +208,15 @@ func (a *Actor) Release(p *geom.Point, btn platform.MouseButton) error {
 }
 
 // DragVia presses at from, interpolates through waypoints, and releases at to.
-func (a *Actor) DragVia(from geom.Point, via []Waypoint, to geom.Point, btn platform.MouseButton, dur time.Duration) error {
+func (a *Actor) DragVia(from geom.Point, via []Waypoint, to geom.Point, btn platform.MouseButton, dur, holdMs time.Duration) error {
 	if btn == "" {
 		btn = platform.ButtonLeft
 	}
 	if dur <= 0 {
 		dur = 250 * time.Millisecond
+	}
+	if holdMs <= 0 {
+		holdMs = 80 * time.Millisecond
 	}
 	// Count total legs: from→wp1, wp1→wp2, ..., wpN→to
 	legs := len(via) + 1
@@ -244,7 +250,7 @@ func (a *Actor) DragVia(from geom.Point, via []Waypoint, to geom.Point, btn plat
 	if err := a.interpolateMove(prev, to, legDur); err != nil {
 		return err
 	}
-	a.sleep(80 * time.Millisecond)
+	a.sleep(holdMs)
 	released = true
 	return a.In.MouseUp(btn)
 }
