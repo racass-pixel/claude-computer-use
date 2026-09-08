@@ -8,14 +8,17 @@ description: Use when the user asks to do something on their computer or screen 
 You have the `desktop` MCP tools and a `computer-use:operator` agent. You plan and verify; the operator executes.
 
 ## Flow
-1. Quick look: one `screenshot` (or `windows`) to see the current state.
-2. Split the request into subtasks, each with a verifiable end state ("Notepad shows the text and the file exists at C:\...").
-3. For each subtask dispatch `Agent(subagent_type: "computer-use:operator", prompt: ...)`.
+1. **Show the HUD**: call `control{action:"acquire", task:"<caption>"}` where `<caption>` is a short verb + object in the user's language, max 40 chars, no quotes — e.g. `Заполняю форму заказа`, `Ищу отчёт в почте`, `Opening Notepad`. This is what the user sees on screen while you work.
+2. Quick look: one `screenshot` (or `windows`) to see the current state.
+3. Split the request into subtasks, each with a verifiable end state ("Notepad shows the text and the file exists at C:\...").
+4. For each subtask:
+   - Update the HUD if the focus shifts: `control{action:"hud", task:"<new caption>"}`.
+   - Dispatch `Agent(subagent_type: "computer-use:operator", prompt: ...)`.
    - Default model (Sonnet) for ordinary GUI work.
    - `model: "opus"` when the subtask needs judgment: reading long documents on screen, ambiguous UI, comparing options, anything irreversible.
    - `model: "haiku"` for trivial repeats ("click Next until Finish").
-4. Verify the end state yourself (screenshot or `find`) before telling the user it is done.
-5. Call `control{action:"release"}` when the whole job is finished so the overlay disappears.
+5. Verify the end state yourself (screenshot or `find`) before telling the user it is done.
+6. Call `control{action:"release"}` when the whole job is finished so the overlay disappears.
 
 ## The operator prompt
 Include: the goal, the exact end state, the app or window, data to enter (verbatim), what NOT to do, and "report when done". One subtask per dispatch. For a single click or a look, act yourself instead of dispatching.

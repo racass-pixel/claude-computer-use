@@ -23,9 +23,9 @@ func summarizeText(t string) string {
 	t = strings.ReplaceAll(t, "\n", "⏎")
 	r := []rune(t)
 	if len(r) > 28 {
-		return fmt.Sprintf("type %q… (%d chars)", string(r[:28]), len(r))
+		return fmt.Sprintf("type|%q… (%d chars)", string(r[:28]), len(r))
 	}
-	return fmt.Sprintf("type %q", t)
+	return fmt.Sprintf("type|%q", t)
 }
 
 func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in TypeIn) (*mcp.CallToolResult, any, error) {
@@ -75,7 +75,7 @@ func (s *Session) toolKey(ctx context.Context, req *mcp.CallToolRequest, in KeyI
 		}
 		chords = append(chords, c)
 	}
-	if early := s.begin(ctx, "key", "key "+strings.Join(names, " ")); early != nil {
+	if early := s.begin(ctx, "key", "key|"+strings.Join(names, " ")); early != nil {
 		return early, nil, nil
 	}
 	for i, c := range chords {

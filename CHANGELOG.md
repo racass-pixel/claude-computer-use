@@ -2,6 +2,7 @@
 
 ## 0.1.0 — 2026-09-08
 
+- Claude-style HUD: animated spark logo, warm dark pill, human-readable action captions (localized ru/en), key-cap hints, border glow shimmer; orchestrator writes the task title shown to the user
 - `pixel` and `click_until` tools for grinding repetitive lists without per-click screenshots; `screenshot_region` on every action tool for zoomed follow-up captures
 - 16 MCP tools: screenshot, click, move, drag, scroll, type, key, clipboard, monitors, windows, window, find, wait, batch, control, recipe
 - Glowing take-over overlay with HUD, click ripple and breathing animation

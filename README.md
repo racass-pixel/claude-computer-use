@@ -12,7 +12,7 @@ A Claude Code plugin that gives Claude full control of a Windows desktop — mou
 - **Screenshot in every action** — the model sees the result of each step
 - **UI Automation `find`** — target buttons, fields, menu items by name or role instead of guessing pixels
 - **Multi-monitor aware** — switch between monitors, each with per-monitor DPI v2
-- **Glowing take-over overlay + HUD** — accent-colored breathing border, task title, action feed, click ripple
+- **Claude-style HUD and glow** — warm dark pill with the animated Claude spark, human-readable action captions (localized ru/en), key-cap hints, accent-colored breathing border with travelling shimmer, click ripple; the orchestrator writes a task caption the user sees the whole time
 - **Instant interrupt** — Esc Esc takes control back; optionally pause on any physical input (`auto_pause: true`)
 - **Smooth mouse glide** — natural cursor movement between points
 - **Recipes** — procedural memory: Claude learns repetitive tasks and replays them in one call
@@ -123,6 +123,7 @@ Every key can also be set via an environment variable (`CU_` prefix, uppercase, 
 | `overlay` | `true` | `CU_OVERLAY` | Show the take-over overlay |
 | `border_thickness` | `56` | `CU_BORDER_THICKNESS` | Overlay border strip thickness in pixels (before DPI) |
 | `border_intensity` | `0.85` | `CU_BORDER_INTENSITY` | Overlay border opacity (0.0–1.0) |
+| `border_shimmer` | `true` | `CU_BORDER_SHIMMER` | Travelling bright spot on the border glow while controlling |
 | `idle_release_ms` | `120000` | `CU_IDLE_RELEASE_MS` | Hide overlay after this many ms of inactivity |
 | `pause_wait_ms` | `20000` | `CU_PAUSE_WAIT_MS` | How long an action waits for the user to hand back before returning an error |
 | `paste_threshold` | `200` | `CU_PASTE_THRESHOLD` | Character count above which `type` uses clipboard paste |

@@ -208,7 +208,15 @@ func (o *Overlay) frame() {
 		return
 	}
 	breath := 0.85 + 0.15*math.Sin(o.phase)
-	o.set.apply(breath)
+	o.mu.Lock()
+	paused := o.state == platform.OverlayPaused
+	o.mu.Unlock()
+	shimmerPos := -1.0
+	if o.cfg.Shimmer && !paused {
+		// Shimmer travels around the frame once per 6 seconds.
+		shimmerPos = math.Mod(o.phase/(2*math.Pi)*2.4/6.0, 1.0) // phase advances 2pi per 2.4s
+	}
+	o.set.apply(breath, shimmerPos)
 	for i, img := range o.set.images() {
 		if o.strips[i] != nil {
 			o.strips[i].update(img)
@@ -264,7 +272,17 @@ func (o *Overlay) hudSpecNow() (hudSpec, platform.Monitor, platform.OverlayState
 	defer o.mu.Unlock()
 	paused := o.state == platform.OverlayPaused
 	l1, l2 := hudText(o.cfg.Lang, o.cfg.HotkeyLabel, o.title, o.action, paused)
-	return hudSpec{Title: l1, Sub: l2, Scale: o.mon.ScaleFactor, Accent: o.cfg.Accent, Paused: paused, Pulse: 0.5 + 0.5*math.Sin(o.phase*2)}, o.mon, o.state
+	return hudSpec{
+		Title:       l1,
+		Sub:         l2,
+		HotkeyLabel: o.cfg.HotkeyLabel,
+		Lang:        o.cfg.Lang,
+		Scale:       o.mon.ScaleFactor,
+		Accent:      o.cfg.Accent,
+		Paused:      paused,
+		Pulse:       0.5 + 0.5*math.Sin(o.phase*2),
+		SparkPhase:  o.phase,
+	}, o.mon, o.state
 }
 
 func (o *Overlay) showHUD(m platform.Monitor, s platform.OverlayState) { o.refreshHUD() }

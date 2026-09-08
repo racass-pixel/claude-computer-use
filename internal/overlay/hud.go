@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"sync"
 
 	"golang.org/x/image/font"
@@ -13,11 +14,88 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-type hudStrings struct{ Title, Sub, PausedTitle, PausedSub string }
+// ---- Claude palette ----
+
+var (
+	hudBG          = color.RGBA{R: 0x1F, G: 0x1E, B: 0x1B, A: 235} // warm dark, alpha ~0.92
+	hudBGPaused    = color.RGBA{R: 0x2A, G: 0x29, B: 0x26, A: 235}
+	hudHairline    = color.RGBA{R: 0xD9, G: 0x77, B: 0x57, A: 89} // accent at alpha 0.35
+	hudHairlinePsd = color.RGBA{R: 0x8A, G: 0x87, B: 0x80, A: 89}
+	hudTitleColor  = color.RGBA{R: 0xF4, G: 0xF3, B: 0xEE, A: 255} // cream
+	hudSubColor    = color.RGBA{R: 0xB1, G: 0xAD, B: 0xA1, A: 255} // warm gray
+	hudDetailColor = color.RGBA{R: 0x8A, G: 0x87, B: 0x80, A: 255} // muted detail
+	hudCapBG       = color.RGBA{R: 0x3A, G: 0x38, B: 0x35, A: 255}
+	hudCapText     = color.RGBA{R: 0xF4, G: 0xF3, B: 0xEE, A: 255}
+)
+
+// ---- localisation ----
+
+type hudStrings struct {
+	PausedTitle, PausedSub string
+	TakeControl            string // key-cap hint
+	HandBack               string
+}
 
 var texts = map[string]hudStrings{
-	"en": {"Claude is controlling the computer", "%s — take control", "You are in control", "%s — hand back to Claude"},
-	"ru": {"Claude управляет компьютером", "%s — забрать управление", "Управление у вас", "%s — вернуть Claude"},
+	"en": {"You are in control", "Press to hand back to Claude", "take control", "hand back to Claude"},
+	"ru": {
+		PausedTitle: "Управление у вас",
+		PausedSub:   "Нажмите, чтобы вернуть Claude",
+		TakeControl: "забрать управление",
+		HandBack:    "вернуть Claude",
+	},
+}
+
+// captionVerbs maps tool key to localized verb.
+var captionVerbs = map[string]map[string]string{
+	"en": {
+		"click": "Clicking", "move": "Moving", "drag": "Dragging",
+		"scroll": "Scrolling", "type": "Typing", "key": "Pressing",
+		"window": "Switching window", "find": "Finding", "wait": "Waiting",
+		"screenshot": "Looking", "batch": "Running a batch",
+		"click_until": "Grinding a list", "recipe": "Running a recipe",
+	},
+	"ru": {
+		"click":       "Кликаю",
+		"move":        "Веду курсор",
+		"drag":        "Перетаскиваю",
+		"scroll":      "Прокручиваю",
+		"type":        "Печатаю",
+		"key":         "Нажимаю",
+		"window":      "Переключаю окно",
+		"find":        "Ищу элемент",
+		"wait":        "Жду",
+		"screenshot":  "Смотрю",
+		"batch":       "Выполняю серию",
+		"click_until": "Перебираю список",
+		"recipe":      "Выполняю рецепт",
+	},
+}
+
+// captionFor parses "tool|detail" into (verb, detail) using the lang verb table.
+// Unknown tools or legacy free-form summaries are returned as-is.
+func captionFor(lang, summary string) (verb, detail string) {
+	if summary == "" {
+		return "", ""
+	}
+	pipe := strings.IndexByte(summary, '|')
+	if pipe < 0 {
+		return summary, ""
+	}
+	tool := summary[:pipe]
+	detail = summary[pipe+1:]
+	if tool == "control" {
+		return "", ""
+	}
+	verbs, ok := captionVerbs[lang]
+	if !ok {
+		verbs = captionVerbs["en"]
+	}
+	v, ok := verbs[tool]
+	if !ok {
+		return summary, ""
+	}
+	return v, detail
 }
 
 func hudText(lang, hotkeyLabel, title, action string, paused bool) (string, string) {
@@ -26,20 +104,22 @@ func hudText(lang, hotkeyLabel, title, action string, paused bool) (string, stri
 		s = texts["en"]
 	}
 	if paused {
-		return s.PausedTitle, sprintf(s.PausedSub, hotkeyLabel)
+		return s.PausedTitle, s.PausedSub
 	}
-	l1 := s.Title
-	if title != "" {
-		l1 = title
+	l1 := title
+	if l1 == "" {
+		l1 = "Claude"
 	}
-	l2 := sprintf(s.Sub, hotkeyLabel)
-	if action != "" {
-		l2 += "  ·  " + action
+	verb, detail := captionFor(lang, action)
+	l2 := verb
+	if detail != "" && l2 != "" {
+		l2 += " · " + detail
 	}
+	_ = hotkeyLabel
 	return l1, l2
 }
 
-func sprintf(format, a string) string { // avoid fmt for the hot path; format has exactly one %s
+func sprintf(format, a string) string {
 	out := make([]byte, 0, len(format)+len(a))
 	for i := 0; i < len(format); i++ {
 		if format[i] == '%' && i+1 < len(format) && format[i+1] == 's' {
@@ -53,26 +133,49 @@ func sprintf(format, a string) string { // avoid fmt for the hot path; format ha
 }
 
 type hudSpec struct {
-	Title, Sub string
-	Scale      float64
-	Accent     color.RGBA
-	Paused     bool
-	Pulse      float64
+	Title, Sub  string
+	HotkeyLabel string
+	Lang        string
+	Scale       float64
+	Accent      color.RGBA
+	Paused      bool
+	Pulse       float64 // 0..1
+	SparkPhase  float64
+	Alpha       float64 // overall alpha multiplier 0..1; 0 means 1
 }
+
+// ---- font cache (per-scale, avoids per-frame allocation) ----
 
 var (
 	fontOnce sync.Once
 	fontMed  *opentype.Font
 	fontReg  *opentype.Font
+
+	faceMu    sync.Mutex
+	faceCache map[faceKey]font.Face
 )
+
+type faceKey struct {
+	font *opentype.Font
+	px10 int // px * 10
+}
 
 func loadFonts() {
 	fontMed, _ = opentype.Parse(gomedium.TTF)
 	fontReg, _ = opentype.Parse(goregular.TTF)
+	faceCache = make(map[faceKey]font.Face, 8)
 }
 
-func face(f *opentype.Font, px float64) font.Face {
+func cachedFace(f *opentype.Font, px float64) font.Face {
+	fontOnce.Do(loadFonts)
+	key := faceKey{font: f, px10: int(math.Round(px * 10))}
+	faceMu.Lock()
+	defer faceMu.Unlock()
+	if fc, ok := faceCache[key]; ok {
+		return fc
+	}
 	fc, _ := opentype.NewFace(f, &opentype.FaceOptions{Size: px, DPI: 72, Hinting: font.HintingFull})
+	faceCache[key] = fc
 	return fc
 }
 
@@ -83,47 +186,146 @@ func drawText(img *image.RGBA, fc font.Face, x, baseline int, s string, c color.
 	d.DrawString(s)
 }
 
-// renderHUD draws the pill: [dot] Title / Sub, dark translucent background, 1px light border.
+// renderHUD draws the Claude-style pill HUD.
+// Layout: line 1 = [spark] [title]; line 2 = [action verb + detail] ... [Esc][Esc] hint
 func renderHUD(spec hudSpec) *image.RGBA {
 	fontOnce.Do(loadFonts)
 	sc := spec.Scale
 	if sc <= 0 {
 		sc = 1
 	}
-	titleFace := face(fontMed, 15*sc)
-	subFace := face(fontReg, 12.5*sc)
-	defer titleFace.Close()
-	defer subFace.Close()
+	alpha := spec.Alpha
+	if alpha <= 0 {
+		alpha = 1
+	}
+
+	titleFace := cachedFace(fontMed, 15*sc)
+	subFace := cachedFace(fontReg, 12.5*sc)
+	capFace := cachedFace(fontReg, 11*sc)
 
 	padX, padY := int(16*sc), int(10*sc)
-	dot := int(8 * sc)
-	gap := int(9 * sc)
-	lineGap := int(4 * sc)
-	tw := max(textWidth(titleFace, spec.Title), textWidth(subFace, spec.Sub))
+	sparkSize := int(22 * sc)
+	sparkGap := int(9 * sc)
+	lineGap := int(5 * sc)
+
+	tw := textWidth(titleFace, spec.Title)
 	titleH := titleFace.Metrics().Height.Ceil()
 	subH := subFace.Metrics().Height.Ceil()
-	w := padX*2 + dot + gap + tw
-	h := padY*2 + titleH + lineGap + subH
+
+	s, ok := texts[spec.Lang]
+	if !ok {
+		s = texts["en"]
+	}
+	hint := s.TakeControl
+	if spec.Paused {
+		hint = s.HandBack
+	}
+
+	keys := strings.Fields(spec.HotkeyLabel)
+	if len(keys) == 0 {
+		keys = []string{"Esc", "Esc"}
+	}
+	capPadX := int(6 * sc)
+	capPadY := int(3 * sc)
+	capH := capFace.Metrics().Height.Ceil() + capPadY*2
+	capRadius := 4 * sc
+	capGap := int(4 * sc)
+	hintGap := int(6 * sc)
+
+	capsWidth := 0
+	var capWidths []int
+	for _, k := range keys {
+		kw := textWidth(capFace, k) + capPadX*2
+		capWidths = append(capWidths, kw)
+		capsWidth += kw + capGap
+	}
+	capsWidth += hintGap + textWidth(capFace, hint)
+
+	subTW := 0
+	if spec.Sub != "" {
+		subTW = textWidth(subFace, spec.Sub)
+	}
+	subGapPx := int(20 * sc)
+	line2W := subTW
+	if subTW > 0 {
+		line2W += subGapPx
+	}
+	line2W += capsWidth
+
+	line1W := sparkSize + sparkGap + tw
+	contentW := line1W
+	if line2W > contentW {
+		contentW = line2W
+	}
+	w := padX*2 + contentW
+	h := padY*2 + titleH + lineGap + max(subH, capH)
+
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
 	radius := 14 * sc
-	bg := color.RGBA{R: 22, G: 22, B: 24, A: 222}
+	bg := hudBG
+	hairline := hudHairline
 	if spec.Paused {
-		bg = color.RGBA{R: 44, G: 44, B: 46, A: 222}
+		bg = hudBGPaused
+		hairline = hudHairlinePsd
 	}
-	fillRoundedRect(img, img.Bounds(), radius, color.RGBA{R: 255, G: 255, B: 255, A: 28}) // hairline border
+
+	fillRoundedRect(img, img.Bounds(), radius, hairline)
 	fillRoundedRect(img, image.Rect(1, 1, w-1, h-1), radius-1, bg)
 
-	dotC := spec.Accent
+	// Spark
+	sparkR := float64(sparkSize) / 2
+	sparkCX := float64(padX) + sparkR
+	sparkCY := float64(padY) + float64(titleH)/2
+	sparkCol := spec.Accent
+	sparkPhase := spec.SparkPhase
 	if spec.Paused {
-		dotC = pausedColor
+		sparkCol = pausedColor
+		sparkPhase = 0
 	}
-	dotC.A = uint8(120 + 135*math.Max(0, math.Min(1, spec.Pulse)))
-	cy := float64(padY) + float64(titleH)/2
-	strokeRing(img, float64(padX)+float64(dot)/2, cy, float64(dot)/2, float64(dot), dotC) // a filled disc: width == diameter
+	renderSpark(img, sparkCX, sparkCY, sparkR, sparkPhase, sparkCol)
 
-	x := padX + dot + gap
-	drawText(img, titleFace, x, padY+titleFace.Metrics().Ascent.Ceil(), spec.Title, color.RGBA{R: 245, G: 245, B: 245, A: 255})
-	drawText(img, subFace, x, padY+titleH+lineGap+subFace.Metrics().Ascent.Ceil(), spec.Sub, color.RGBA{R: 200, G: 200, B: 205, A: 255})
+	// Title
+	x := padX + sparkSize + sparkGap
+	drawText(img, titleFace, x, padY+titleFace.Metrics().Ascent.Ceil(), spec.Title, hudTitleColor)
+
+	// Line 2
+	line2Y := padY + titleH + lineGap
+	line2Baseline := line2Y + subFace.Metrics().Ascent.Ceil()
+
+	if spec.Sub != "" {
+		verb, detail := spec.Sub, ""
+		if dot := strings.Index(spec.Sub, " · "); dot >= 0 {
+			verb = spec.Sub[:dot]
+			detail = spec.Sub[dot:]
+		}
+		drawText(img, subFace, padX, line2Baseline, verb, hudSubColor)
+		if detail != "" {
+			vw := textWidth(subFace, verb)
+			drawText(img, subFace, padX+vw, line2Baseline, detail, hudDetailColor)
+		}
+	}
+
+	// Key-caps
+	capX := w - padX - capsWidth
+	capBaseline := line2Y + (max(subH, capH)-capFace.Metrics().Height.Ceil())/2 + capFace.Metrics().Ascent.Ceil()
+	for i, k := range keys {
+		kw := capWidths[i]
+		kh := capH
+		ky := line2Y + (max(subH, capH)-kh)/2
+		fillRoundedRect(img, image.Rect(capX, ky, capX+kw, ky+kh), capRadius, hudCapBG)
+		drawText(img, capFace, capX+capPadX, capBaseline, k, hudCapText)
+		capX += kw + capGap
+	}
+	capX += hintGap - capGap
+	drawText(img, capFace, capX, capBaseline, hint, hudDetailColor)
+
+	// Overall alpha
+	if alpha < 1 {
+		for i := 3; i < len(img.Pix); i += 4 {
+			img.Pix[i] = uint8(float64(img.Pix[i]) * alpha)
+		}
+	}
+
 	return img
 }

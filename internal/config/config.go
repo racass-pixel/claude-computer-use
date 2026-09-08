@@ -26,8 +26,14 @@ type Config struct {
 	PasteThreshold     int     `json:"paste_threshold"`
 	BorderThickness    int     `json:"border_thickness"`
 	BorderIntensity    float64 `json:"border_intensity"`
+	BorderShimmer      *bool   `json:"border_shimmer,omitempty"` // nil = true (default on)
 	MouseGlideMs       int     `json:"mouse_glide_ms"`
 	LogFile            string  `json:"log_file"`
+}
+
+// BorderShimmerEnabled returns whether the glow shimmer is enabled (default true).
+func (c Config) BorderShimmerEnabled() bool {
+	return c.BorderShimmer == nil || *c.BorderShimmer
 }
 
 func Default() Config {
@@ -116,6 +122,18 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		*dst = f
 		return nil
 	}
+	boolPtr := func(key string, dst **bool) error {
+		v := getenv(key)
+		if v == "" {
+			return nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("%s: %q is not a boolean", key, v)
+		}
+		*dst = &b
+		return nil
+	}
 	str("CU_HOTKEY", &c.Hotkey)
 	str("CU_SCREENSHOT_FORMAT", &c.ScreenshotFormat)
 	str("CU_LANG", &c.Lang)
@@ -133,6 +151,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		num("CU_BORDER_THICKNESS", &c.BorderThickness),
 		num("CU_MOUSE_GLIDE_MS", &c.MouseGlideMs),
 		float("CU_BORDER_INTENSITY", &c.BorderIntensity),
+		boolPtr("CU_BORDER_SHIMMER", &c.BorderShimmer),
 	} {
 		if e != nil {
 			return e

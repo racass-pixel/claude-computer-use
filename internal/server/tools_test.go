@@ -19,7 +19,7 @@ func TestClickMapsImageToScreenAndReturnsScreenshot(t *testing.T) {
 	if got := strings.Join(h.in.Calls, "|"); got != "move 960,540|down left|up left" {
 		t.Fatalf("calls = %q", got)
 	}
-	if !strings.Contains(strings.Join(h.ov.Calls, "|"), "action click 683,384") {
+	if !strings.Contains(strings.Join(h.ov.Calls, "|"), "action click|683,384") {
 		t.Fatalf("overlay must show the action: %v", h.ov.Calls)
 	}
 	if !strings.Contains(strings.Join(h.ov.Calls, "|"), "ripple 960,540") {

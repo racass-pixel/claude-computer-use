@@ -51,7 +51,14 @@ func runDemo(args []string) error {
 	if lang == "auto" {
 		lang = win.UserUILanguage()
 	}
-	ov, err := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: "Esc Esc", Thick: cfg.BorderThickness, Intensity: cfg.BorderIntensity})
+	ov, err := overlay.New(ui, overlay.Config{
+		Accent:      color.RGBA{R: r, G: g, B: b, A: 255},
+		Lang:        lang,
+		HotkeyLabel: "Esc Esc",
+		Thick:       cfg.BorderThickness,
+		Intensity:   cfg.BorderIntensity,
+		Shimmer:     cfg.BorderShimmerEnabled(),
+	})
 	if err != nil {
 		return err
 	}
@@ -65,13 +72,25 @@ func runDemo(args []string) error {
 	if !ok {
 		return fmt.Errorf("no monitor %d", *mon)
 	}
-	ov.SetTitle("Demo: Claude Computer Use")
+
+	// Demo sequence: appear with title, cycle through action captions, pause, hide.
+	actions := []string{
+		"click|640,412",
+		"type|\"hello\"",
+		"find|Save",
+		"click_until|deny ×12",
+	}
+
+	ov.SetTitle("Заполняю форму заказа")
 	ov.Show(m, platform.OverlayControlling)
+
+	screenshotTaken := false
 	for i := 0; i < *secs*2; i++ {
-		ov.SetAction(fmt.Sprintf("click %d,%d", 100+i*40, 200))
+		action := actions[i%len(actions)]
+		ov.SetAction(action)
 		ov.Ripple(geom.Point{X: m.Rect.X + 200 + i*60, Y: m.Rect.Y + 300})
 		time.Sleep(500 * time.Millisecond)
-		if *out != "" && i == *secs {
+		if *out != "" && !screenshotTaken && i >= *secs {
 			shot, err := screen.Grab(s, m.Rect, screen.AutoScale(m.Rect, 1366), "png", 85)
 			if err != nil {
 				return err
@@ -80,6 +99,7 @@ func runDemo(args []string) error {
 				return err
 			}
 			fmt.Printf("saved %s (capture exclusion supported: %v)\n", *out, win.CaptureExclusionSupported)
+			screenshotTaken = true
 		}
 	}
 	ov.Show(m, platform.OverlayPaused)
