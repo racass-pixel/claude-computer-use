@@ -120,9 +120,12 @@ func runServe(args []string) error {
 			ov.Show(activeMon(), platform.OverlayControlling)
 		case guard.Idle:
 			ov.Hide()
-			// Auto-record on idle release.
-			if s := sessionRef.Load(); s != nil {
-				s.OnRelease()
+			// Auto-record only on idle timeout, not on explicit control release
+			// (which already calls autoRecord itself).
+			if tr.Reason == guard.ReasonIdle {
+				if s := sessionRef.Load(); s != nil {
+					s.OnRelease()
+				}
 			}
 		}
 	})

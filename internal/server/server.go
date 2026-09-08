@@ -69,6 +69,7 @@ type Session struct {
 	taskCaption    string // set by acquire with a task
 	taskApp        string // foreground process at acquire time
 	recipeRanInJob bool   // true if recipe run was called in this job
+	jobRecorded    bool   // true once autoRecord saved a recipe for this job
 }
 
 type traceEntry struct {

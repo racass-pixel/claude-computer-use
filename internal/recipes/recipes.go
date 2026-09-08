@@ -267,14 +267,25 @@ func splitOnNonAlphaNum(s string) []string {
 	return parts
 }
 
-// fuzzyMatchAny returns true if token shares a prefix of >= 4 runes with any candidate.
-// This handles morphological variation in inflected languages (e.g., Russian verb conjugations).
+// fuzzyMatchAny returns true if token fuzzy-matches any candidate.
+// A fuzzy match requires a shared prefix of >= 4 runes that covers >= 50%
+// of the shorter token. This handles morphological variation in inflected
+// languages (e.g., Russian: "открыть" vs "открываю" share "откр" = 4/7 = 57%)
+// while rejecting unrelated words that happen to start the same way
+// (e.g., "настроить" vs "настолько" share "наст" = 4/9 = 44% < 50%).
 func fuzzyMatchAny(token string, candidates []string) bool {
-	if utf8.RuneCountInString(token) < 4 {
+	tLen := utf8.RuneCountInString(token)
+	if tLen < 4 {
 		return false
 	}
 	for _, c := range candidates {
-		if sharedPrefixRunes(token, c) >= 4 {
+		cLen := utf8.RuneCountInString(c)
+		shared := sharedPrefixRunes(token, c)
+		shorter := tLen
+		if cLen < shorter {
+			shorter = cLen
+		}
+		if shared >= 4 && float64(shared) >= 0.5*float64(shorter) {
 			return true
 		}
 	}

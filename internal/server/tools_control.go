@@ -54,6 +54,7 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 			s.taskCaption = in.Task
 			s.taskApp = fg.Process
 			s.recipeRanInJob = false
+			s.jobRecorded = false
 			s.mu.Unlock()
 		}
 		if m := s.activeMonitor(); m.ID != 0 {
@@ -119,7 +120,9 @@ func (s *Session) suggestRecipes(task string) []map[string]any {
 }
 
 // autoRecord saves a draft recipe automatically if the conditions are met:
-// >= 4 action steps, no recipe run in this job, and a task caption was set.
+// >= 4 action steps, no recipe run in this job, task caption set, and not
+// already recorded for this job (idempotent — safe to call from both
+// control release and the guard idle callback).
 func (s *Session) autoRecord() {
 	if s.d.Recipes == nil {
 		return
@@ -128,9 +131,10 @@ func (s *Session) autoRecord() {
 	caption := s.taskCaption
 	app := s.taskApp
 	ranRecipe := s.recipeRanInJob
+	recorded := s.jobRecorded
 	s.mu.Unlock()
 
-	if caption == "" || ranRecipe {
+	if caption == "" || ranRecipe || recorded {
 		return
 	}
 
@@ -140,6 +144,10 @@ func (s *Session) autoRecord() {
 	}
 
 	_, _ = s.d.Recipes.Save(draft)
+
+	s.mu.Lock()
+	s.jobRecorded = true
+	s.mu.Unlock()
 }
 
 // OnRelease performs auto-recording. Called by external hooks (e.g., guard idle transition).

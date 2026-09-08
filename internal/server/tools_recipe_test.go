@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/racass-pixel/claude-computer-use/internal/recipes"
 )
@@ -445,6 +446,64 @@ func TestOnReleaseAutoRecordsLikeControlRelease(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("OnRelease did not auto-record a recipe")
+	}
+}
+
+// syncReleaseController is a fake Controller whose Release synchronously invokes
+// a callback, simulating how guard.Machine fires onChange(Idle) inside Release.
+type syncReleaseController struct {
+	onRelease func()
+}
+
+func (c *syncReleaseController) IsPaused() bool                      { return false }
+func (c *syncReleaseController) Acquire(now time.Time)               {}
+func (c *syncReleaseController) Touch(now time.Time)                 {}
+func (c *syncReleaseController) WaitResume(ctx context.Context) bool { return true }
+func (c *syncReleaseController) Status() ControllerStatus {
+	return ControllerStatus{State: "idle", Hotkey: "Esc Esc"}
+}
+func (c *syncReleaseController) Release(now time.Time) {
+	if c.onRelease != nil {
+		c.onRelease()
+	}
+}
+
+func TestControlReleaseRecordsExactlyOnceWithSyncHook(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Wire a controller whose Release synchronously calls OnRelease,
+	// simulating the guard.Machine → onChange(Idle) → OnRelease path.
+	ctrl := &syncReleaseController{
+		onRelease: func() { h.s.OnRelease() },
+	}
+	h.s.d.Controller = ctrl
+
+	// Acquire with a task
+	h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Once only"})
+
+	// Perform >= 4 actions
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(100), Y: intPtr(100)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(200), Y: intPtr(200)})
+	h.s.toolType(ctx, nil, TypeIn{Text: "test"})
+	h.s.toolKey(ctx, nil, KeyIn{Key: "enter"})
+
+	// Release — autoRecord runs in toolControl, then ctrl.Release calls OnRelease
+	// which calls autoRecord again. With idempotency, only one recipe should be saved.
+	h.s.toolControl(ctx, nil, ControlIn{Action: "release"})
+
+	all, err := h.s.d.Recipes.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, r := range all {
+		if r.Auto {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 auto-recorded recipe, got %d", count)
 	}
 }
 

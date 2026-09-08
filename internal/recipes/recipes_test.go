@@ -277,6 +277,73 @@ func TestPathTraversal(t *testing.T) {
 	}
 }
 
+func TestFuzzyMatchPositive(t *testing.T) {
+	// "открыть" (7 runes) vs "открываю" (8 runes): shared prefix "откр" = 4,
+	// shorter = 7, 4/7 = 57% >= 50% → match.
+	if !fuzzyMatchAny("открыть", []string{"открываю"}) {
+		t.Fatal("expected открыть to fuzzy-match открываю")
+	}
+	// "блокнот" vs "блокноте": shared 7/7 = 100%
+	if !fuzzyMatchAny("блокнот", []string{"блокноте"}) {
+		t.Fatal("expected блокнот to fuzzy-match блокноте")
+	}
+	// "закрыть" vs "закрываю": shared "закр" = 4, shorter = 7, 57%
+	if !fuzzyMatchAny("закрыть", []string{"закрываю"}) {
+		t.Fatal("expected закрыть to fuzzy-match закрываю")
+	}
+}
+
+func TestFuzzyMatchNegative(t *testing.T) {
+	// "настроить" (9) vs "настолько" (9): shared "наст" = 4, 4/9 = 44% < 50%
+	if fuzzyMatchAny("настроить", []string{"настолько"}) {
+		t.Fatal("настроить should NOT fuzzy-match настолько")
+	}
+	// Short tokens (< 4 runes) never fuzzy-match
+	if fuzzyMatchAny("да", []string{"дать"}) {
+		t.Fatal("short token should not fuzzy-match")
+	}
+	// Completely unrelated long tokens
+	if fuzzyMatchAny("компьютер", []string{"блокнот"}) {
+		t.Fatal("unrelated tokens should not fuzzy-match")
+	}
+}
+
+func TestSearchFuzzyMatchCyrillicMorphology(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	// Recipe with conjugated verb form
+	s.Save(Recipe{
+		Name:        "Открываю Блокнот",
+		Description: "открываю блокнот через диалог выполнить",
+		Steps:       []Step{{Tool: "key"}},
+	})
+	// Query uses infinitive form — should still match via fuzzy prefix
+	matches, _ := s.Search("открыть блокнот", "", 5)
+	if len(matches) == 0 {
+		t.Fatal("expected fuzzy match for открыть vs открываю")
+	}
+	if matches[0].Score < 0.5 {
+		t.Fatalf("score = %f, expected >= 0.5 for fuzzy morphological match", matches[0].Score)
+	}
+}
+
+func TestSearchFuzzyDoesNotOverrankUnrelated(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	// Recipe whose name shares a 4-char prefix with a query token but is unrelated
+	s.Save(Recipe{
+		Name:        "Настолько важный файл",
+		Description: "важный файл",
+		Steps:       []Step{{Tool: "key"}},
+	})
+	// "настроить" shares prefix "наст" (4 runes) with "настолько" (9 runes),
+	// but 4/9 = 44% < 50% so it should NOT count as a match.
+	matches, _ := s.Search("настроить параметры системы", "", 5)
+	for _, m := range matches {
+		if m.Recipe.Name == "Настолько важный файл" && m.Score >= 0.5 {
+			t.Fatalf("unrelated recipe should not score >= 0.5, got %f", m.Score)
+		}
+	}
+}
+
 func TestDraftCollapsesWaitsAndParametrises(t *testing.T) {
 	trace := []TraceEntry{
 		{Tool: "screenshot", Args: map[string]any{}, OK: true},        // non-action → dropped
