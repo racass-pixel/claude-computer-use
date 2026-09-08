@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // batchableTools is the set of tools allowed in recipe steps.
@@ -267,11 +268,7 @@ func splitOnNonAlphaNum(s string) []string {
 }
 
 func runeLen(s string) int {
-	n := 0
-	for range s {
-		n++
-	}
-	return n
+	return utf8.RuneCountInString(s)
 }
 
 // Search finds recipes matching the query.

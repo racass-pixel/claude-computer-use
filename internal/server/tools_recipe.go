@@ -68,17 +68,6 @@ func (s *Session) recipeTrace() (*mcp.CallToolResult, any, error) {
 }
 
 func (s *Session) recipeDraft(in RecipeIn) (*mcp.CallToolResult, any, error) {
-	entries := s.traceEntries()
-	var traceForDraft []recipes.TraceEntry
-	for _, e := range entries {
-		traceForDraft = append(traceForDraft, recipes.TraceEntry{
-			Tool:    e.Tool,
-			Args:    e.Args,
-			Summary: e.Summary,
-			OK:      e.OK,
-		})
-	}
-
 	name := in.Name
 	if name == "" {
 		s.mu.Lock()
@@ -93,7 +82,7 @@ func (s *Session) recipeDraft(in RecipeIn) (*mcp.CallToolResult, any, error) {
 	app := s.taskApp
 	s.mu.Unlock()
 
-	draft := recipes.Draft(traceForDraft, name, in.Description, app)
+	draft := recipes.Draft(s.traceToRecipeEntries(), name, in.Description, app)
 	return okResult(map[string]any{"draft": draft}, nil), nil, nil
 }
 

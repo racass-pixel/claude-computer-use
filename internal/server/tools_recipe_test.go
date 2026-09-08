@@ -416,4 +416,36 @@ func TestTraceContainsArgs(t *testing.T) {
 	}
 }
 
+func TestOnReleaseAutoRecordsLikeControlRelease(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Acquire with a task
+	h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Idle auto record"})
+
+	// Perform >= 4 action tool calls
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(100), Y: intPtr(100)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(200), Y: intPtr(200)})
+	h.s.toolType(ctx, nil, TypeIn{Text: "test"})
+	h.s.toolKey(ctx, nil, KeyIn{Key: "enter"})
+
+	// Call OnRelease externally (simulates idle release from guard callback)
+	h.s.OnRelease()
+
+	// Check recipe was saved
+	all, err := h.s.d.Recipes.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range all {
+		if r.Auto && r.Name == "Idle auto record" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("OnRelease did not auto-record a recipe")
+	}
+}
+
 func intPtr(i int) *int { return &i }

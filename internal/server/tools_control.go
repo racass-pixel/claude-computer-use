@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -65,7 +66,8 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 		f["suggested_recipes"] = suggestions
 		if len(suggestions) > 0 {
 			if score, ok := suggestions[0]["score"].(float64); ok && score >= 0.5 {
-				f["hint"] = "A matching recipe was found. Run the best match with recipe run before doing it by hand — it is much faster."
+				slug, _ := suggestions[0]["slug"].(string)
+				f["hint"] = fmt.Sprintf("Best match: %s (score %.2f) — run it with recipe{action:\"run\",slug:\"%s\"} before doing anything by hand.", slug, score, slug)
 			}
 		}
 		return okResult(f, nil), nil, nil
@@ -78,11 +80,6 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 			c.Release(now)
 		}
 		s.d.Overlay.Hide()
-
-		// Call ReleaseHook if set (used for idle release wiring).
-		if s.ReleaseHook != nil {
-			s.ReleaseHook()
-		}
 	case "hud":
 		s.d.Overlay.SetTitle(in.Task)
 		if in.Note != "" {
@@ -137,19 +134,7 @@ func (s *Session) autoRecord() {
 		return
 	}
 
-	// Build trace entries for Draft.
-	entries := s.traceEntries()
-	var traceForDraft []recipes.TraceEntry
-	for _, e := range entries {
-		traceForDraft = append(traceForDraft, recipes.TraceEntry{
-			Tool:    e.Tool,
-			Args:    e.Args,
-			Summary: e.Summary,
-			OK:      e.OK,
-		})
-	}
-
-	draft := recipes.Draft(traceForDraft, caption, "", app)
+	draft := recipes.Draft(s.traceToRecipeEntries(), caption, "", app)
 	if len(draft.Steps) < 4 {
 		return
 	}

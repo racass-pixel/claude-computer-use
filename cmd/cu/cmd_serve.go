@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -104,6 +105,9 @@ func runServe(args []string) error {
 		return screen.ActiveMonitor(mons, w.Rect, geom.Point{X: int(p.X), Y: int(p.Y)})
 	}
 
+	// sessionRef is set by OnSessionReady; the guard callback uses it for idle auto-record.
+	var sessionRef atomic.Pointer[server.Session]
+
 	machine := guard.New(guard.Config{
 		AutoPause: cfg.AutoPause, MouseThresholdPx: cfg.MouseThresholdPx,
 		IdleRelease: time.Duration(cfg.IdleReleaseMs) * time.Millisecond, Hotkey: hotkey,
@@ -116,6 +120,10 @@ func runServe(args []string) error {
 			ov.Show(activeMon(), platform.OverlayControlling)
 		case guard.Idle:
 			ov.Hide()
+			// Auto-record on idle release.
+			if s := sessionRef.Load(); s != nil {
+				s.OnRelease()
+			}
 		}
 	})
 	runner, err := guard.Start(machine, ui)
@@ -181,6 +189,9 @@ func runServe(args []string) error {
 		Overlay:    ov,
 		Recipes:    recipeStore,
 		Version:    version,
+		OnSessionReady: func(s *server.Session) {
+			sessionRef.Store(s)
+		},
 	}
 	return server.Run(ctx, deps, cfg, logger)
 }

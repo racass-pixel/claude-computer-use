@@ -9,9 +9,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"unicode/utf8"
+
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
 	"github.com/racass-pixel/claude-computer-use/internal/input"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
+	"github.com/racass-pixel/claude-computer-use/internal/recipes"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 )
 
@@ -198,7 +201,7 @@ func sanitizeArgs(args map[string]any) map[string]any {
 			continue
 		}
 		if sv, ok := v.(string); ok {
-			if runeCount(sv) > 200 {
+			if utf8.RuneCountInString(sv) > 200 {
 				runes := []rune(sv)
 				out[k] = string(runes[:200])
 			} else {
@@ -211,12 +214,19 @@ func sanitizeArgs(args map[string]any) map[string]any {
 	return out
 }
 
-func runeCount(s string) int {
-	n := 0
-	for range s {
-		n++
+// traceToRecipeEntries converts internal trace entries to the recipes package format.
+func (s *Session) traceToRecipeEntries() []recipes.TraceEntry {
+	entries := s.traceEntries()
+	out := make([]recipes.TraceEntry, len(entries))
+	for i, e := range entries {
+		out[i] = recipes.TraceEntry{
+			Tool:    e.Tool,
+			Args:    e.Args,
+			Summary: e.Summary,
+			OK:      e.OK,
+		}
 	}
-	return n
+	return out
 }
 
 // toArgsMap converts a typed input struct to map[string]any for trace recording.

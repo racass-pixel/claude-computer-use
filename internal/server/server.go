@@ -33,15 +33,16 @@ type ControllerStatus struct {
 }
 
 type Deps struct {
-	Screen     platform.Screen
-	Input      platform.Input
-	Clip       platform.Clipboard
-	Wins       platform.Windows
-	Access     platform.Accessibility // nil until Task 15 → find returns an error result
-	Overlay    platform.Overlay       // nil → platform.NopOverlay{}
-	Controller Controller             // nil → never paused
-	Recipes    *recipes.Store         // nil → recipe tool returns "unsupported"
-	Version    string
+	Screen         platform.Screen
+	Input          platform.Input
+	Clip           platform.Clipboard
+	Wins           platform.Windows
+	Access         platform.Accessibility // nil until Task 15 → find returns an error result
+	Overlay        platform.Overlay       // nil → platform.NopOverlay{}
+	Controller     Controller             // nil → never paused
+	Recipes        *recipes.Store         // nil → recipe tool returns "unsupported"
+	Version        string
+	OnSessionReady func(*Session) // called after New, before serving; lets callers wire hooks
 }
 
 type Session struct {
@@ -68,9 +69,6 @@ type Session struct {
 	taskCaption    string // set by acquire with a task
 	taskApp        string // foreground process at acquire time
 	recipeRanInJob bool   // true if recipe run was called in this job
-
-	// ReleaseHook is called by the server when control is released (both explicit and idle).
-	ReleaseHook func()
 }
 
 type traceEntry struct {
@@ -120,6 +118,9 @@ func (s *Session) Register(srv *mcp.Server) {
 
 func Run(ctx context.Context, d Deps, cfg config.Config, logger *log.Logger) error {
 	s := New(d, cfg, logger)
+	if d.OnSessionReady != nil {
+		d.OnSessionReady(s)
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "desktop", Version: d.Version}, nil)
 	s.Register(srv)
 	logger.Printf("desktop MCP server %s ready", d.Version)
