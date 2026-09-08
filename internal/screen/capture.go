@@ -57,15 +57,27 @@ func Encode(img image.Image, format string, jpegQuality int) ([]byte, string, er
 	return nil, "", fmt.Errorf("unknown image format %q (use png or jpeg)", format)
 }
 
+// BeforeCapture/AfterCapture let the overlay hide itself around a capture when the OS cannot exclude it.
+var BeforeCapture, AfterCapture func()
+
 // Grab captures rect from s, scales it and encodes it.
 func Grab(s platform.Screen, rect geom.Rect, scale float64, format string, jpegQuality int) (*Shot, error) {
 	if rect.Empty() {
 		return nil, fmt.Errorf("empty capture rect")
 	}
+	if BeforeCapture != nil {
+		BeforeCapture()
+	}
 	t0 := time.Now()
 	img, err := s.Capture(rect)
 	if err != nil {
+		if AfterCapture != nil {
+			AfterCapture()
+		}
 		return nil, err
+	}
+	if AfterCapture != nil {
+		AfterCapture()
 	}
 	t1 := time.Now()
 	scaled := Scale(img, scale)

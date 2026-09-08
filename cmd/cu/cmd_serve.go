@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"image/color"
 	"io"
 	"log"
 	"os"
@@ -11,8 +12,11 @@ import (
 	"time"
 
 	"github.com/racass-pixel/claude-computer-use/internal/config"
+	"github.com/racass-pixel/claude-computer-use/internal/geom"
 	"github.com/racass-pixel/claude-computer-use/internal/guard"
 	"github.com/racass-pixel/claude-computer-use/internal/input"
+	"github.com/racass-pixel/claude-computer-use/internal/overlay"
+	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/server"
 	"github.com/racass-pixel/claude-computer-use/internal/uithread"
@@ -58,11 +62,46 @@ func runServe(args []string) error {
 		return err
 	}
 	defer ui.Close()
+
+	r, g, b, err := cfg.AccentRGB()
+	if err != nil {
+		return err
+	}
+	lang := cfg.Lang
+	if lang == "auto" {
+		lang = win.UserUILanguage()
+	}
+	var ov platform.Overlay = platform.NopOverlay{}
+	if cfg.Overlay {
+		o, oerr := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: hotkey.String()})
+		if oerr != nil {
+			return oerr
+		}
+		ov = o
+	}
+	defer ov.Close()
+
+	activeMon := func() platform.Monitor {
+		mons, _ := screen.ListMonitors()
+		p, _ := win.GetCursorPos()
+		fg := window.New()
+		w, _ := fg.Foreground()
+		return screen.ActiveMonitor(mons, w.Rect, geom.Point{X: int(p.X), Y: int(p.Y)})
+	}
+
 	machine := guard.New(guard.Config{
 		AutoPause: cfg.AutoPause, MouseThresholdPx: cfg.MouseThresholdPx,
 		IdleRelease: time.Duration(cfg.IdleReleaseMs) * time.Millisecond, Hotkey: hotkey,
 	}, func(tr guard.Transition) {
 		logger.Printf("guard: %s -> %s (%s)", tr.From, tr.To, tr.Reason)
+		switch tr.To {
+		case guard.Paused:
+			ov.Show(activeMon(), platform.OverlayPaused)
+		case guard.Controlling:
+			ov.Show(activeMon(), platform.OverlayControlling)
+		case guard.Idle:
+			ov.Hide()
+		}
 	})
 	runner, err := guard.Start(machine, ui)
 	if err != nil {
@@ -76,6 +115,7 @@ func runServe(args []string) error {
 		Clip:       input.NewClipboard(),
 		Wins:       window.New(),
 		Controller: controller{machine},
+		Overlay:    ov,
 		Version:    version,
 	}
 	return server.Run(ctx, deps, cfg, logger)
