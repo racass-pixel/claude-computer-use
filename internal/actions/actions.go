@@ -3,6 +3,7 @@ package actions
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
@@ -14,7 +15,9 @@ type Actor struct {
 	In             platform.Input
 	Clip           platform.Clipboard // may be nil: paste mode then falls back to unicode
 	Sleep          func(time.Duration)
-	PasteThreshold int // "auto" typing pastes when the text is longer than this (runes)
+	PasteThreshold int                        // "auto" typing pastes when the text is longer than this (runes)
+	GlideMs        int                        // mouse glide duration in ms (0 = teleport)
+	Pos            func() (geom.Point, error) // current cursor position; nil = teleport
 }
 
 func (a *Actor) sleep(d time.Duration) {
@@ -23,6 +26,55 @@ func (a *Actor) sleep(d time.Duration) {
 	} else {
 		time.Sleep(d)
 	}
+}
+
+// MoveTo glides the cursor to p using an ease-in-out cubic curve, or teleports
+// if glide is disabled (GlideMs == 0), the distance is tiny, or Pos is nil/errors.
+func (a *Actor) MoveTo(p geom.Point) error {
+	if a.GlideMs == 0 || a.Pos == nil {
+		return a.In.MouseMove(p)
+	}
+	from, err := a.Pos()
+	if err != nil {
+		return a.In.MouseMove(p)
+	}
+	dx, dy := float64(p.X-from.X), float64(p.Y-from.Y)
+	dist := math.Hypot(dx, dy)
+	if dist < 4 {
+		return a.In.MouseMove(p)
+	}
+	steps := int(dist / 8)
+	if steps < 12 {
+		steps = 12
+	}
+	if steps > 60 {
+		steps = 60
+	}
+	dur := float64(a.GlideMs) * (0.6 + 0.4*math.Min(1, dist/800))
+	stepDur := time.Duration(dur/float64(steps)*1e6) * time.Nanosecond
+	for i := 1; i <= steps; i++ {
+		t := float64(i) / float64(steps)
+		var e float64
+		if t < 0.5 {
+			e = 4 * t * t * t
+		} else {
+			e = 1 - math.Pow(-2*t+2, 3)/2
+		}
+		q := geom.Point{
+			X: from.X + int(dx*e+0.5),
+			Y: from.Y + int(dy*e+0.5),
+		}
+		if i == steps {
+			q = p
+		}
+		if err := a.In.MouseMove(q); err != nil {
+			return err
+		}
+		if i < steps {
+			a.sleep(stepDur)
+		}
+	}
+	return nil
 }
 
 // holdMods presses mods in order. If one fails partway, it releases (best-effort,
@@ -59,7 +111,7 @@ func (a *Actor) Click(p geom.Point, btn platform.MouseButton, count int, mods []
 		return err
 	}
 	defer a.releaseMods(mods)
-	if err := a.In.MouseMove(p); err != nil {
+	if err := a.MoveTo(p); err != nil {
 		return err
 	}
 	a.sleep(15 * time.Millisecond)
@@ -86,7 +138,7 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 	if dur <= 0 {
 		dur = 250 * time.Millisecond
 	}
-	if err := a.In.MouseMove(from); err != nil {
+	if err := a.MoveTo(from); err != nil {
 		return err
 	}
 	a.sleep(30 * time.Millisecond)
@@ -123,7 +175,7 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 // Scroll optionally moves to p, then scrolls by ticks (dy>0 down, dx>0 right).
 func (a *Actor) Scroll(p *geom.Point, dx, dy int) error {
 	if p != nil {
-		if err := a.In.MouseMove(*p); err != nil {
+		if err := a.MoveTo(*p); err != nil {
 			return err
 		}
 		a.sleep(10 * time.Millisecond)

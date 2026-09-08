@@ -63,7 +63,10 @@ func New(d Deps, cfg config.Config, logger *log.Logger) *Session {
 	}
 	return &Session{
 		d: d, cfg: cfg, log: logger,
-		actor:    &actions.Actor{In: d.Input, Clip: d.Clip, PasteThreshold: cfg.PasteThreshold},
+		actor: &actions.Actor{
+			In: d.Input, Clip: d.Clip, PasteThreshold: cfg.PasteThreshold,
+			GlideMs: cfg.MouseGlideMs, Pos: d.Screen.CursorPos,
+		},
 		elements: map[string]platform.Element{},
 	}
 }

@@ -185,3 +185,41 @@ func TestScrollMovesFirstWhenPointGiven(t *testing.T) {
 		t.Fatalf("got %v", in.Calls)
 	}
 }
+
+func TestMoveToGlidesWithEasingAndEndsExactly(t *testing.T) {
+	a, in, _ := newActor()
+	a.GlideMs = 200
+	cur := geom.Point{X: 0, Y: 0}
+	a.Pos = func() (geom.Point, error) { return cur, nil }
+	if err := a.MoveTo(geom.Point{X: 400, Y: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Calls) < 12 || in.Calls[len(in.Calls)-1] != "move 400,0" {
+		t.Fatalf("glide must emit >=12 moves ending at the target: %v", in.Calls)
+	}
+	prev := -1
+	for _, c := range in.Calls {
+		var x, y int
+		fmt.Sscanf(c, "move %d,%d", &x, &y)
+		if x < prev {
+			t.Fatalf("x must be monotonic: %v", in.Calls)
+		}
+		prev = x
+	}
+}
+
+func TestMoveToTeleportsWhenDisabledOrTiny(t *testing.T) {
+	a, in, _ := newActor()
+	a.GlideMs = 0
+	a.Pos = func() (geom.Point, error) { return geom.Point{}, nil }
+	_ = a.MoveTo(geom.Point{X: 300, Y: 300})
+	if len(in.Calls) != 1 {
+		t.Fatalf("GlideMs=0 must teleport: %v", in.Calls)
+	}
+	in.Calls = nil
+	a.GlideMs = 200
+	_ = a.MoveTo(geom.Point{X: 2, Y: 1})
+	if len(in.Calls) != 1 {
+		t.Fatalf("tiny distance must teleport: %v", in.Calls)
+	}
+}

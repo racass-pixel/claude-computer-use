@@ -12,6 +12,7 @@ import (
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
 	"github.com/racass-pixel/claude-computer-use/internal/input"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
+	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/win"
 )
 
@@ -22,11 +23,12 @@ func runInput(args []string) error {
 	if err := win.SetPerMonitorDPIAwareV2(); err != nil {
 		return err
 	}
-	a := &actions.Actor{In: input.New(), Clip: input.NewClipboard(), PasteThreshold: 200}
+	scr := screen.New()
+	a := &actions.Actor{In: input.New(), Clip: input.NewClipboard(), PasteThreshold: 200, GlideMs: 220, Pos: scr.CursorPos}
 	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
 	switch args[0] {
 	case "move":
-		return a.In.MouseMove(geom.Point{X: atoi(args[1]), Y: atoi(args[2])})
+		return a.MoveTo(geom.Point{X: atoi(args[1]), Y: atoi(args[2])})
 	case "click":
 		btn := platform.ButtonLeft
 		if len(args) > 3 {

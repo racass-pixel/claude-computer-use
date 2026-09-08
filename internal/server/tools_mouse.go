@@ -61,7 +61,7 @@ func (s *Session) toolMove(ctx context.Context, req *mcp.CallToolRequest, in Mov
 	if early := s.begin(ctx, "move", fmt.Sprintf("move %d,%d", p.X, p.Y)); early != nil {
 		return early, nil, nil
 	}
-	if err := s.d.Input.MouseMove(p); err != nil {
+	if err := s.actor.MoveTo(p); err != nil {
 		return errResult("input_failed", err.Error()), nil, nil
 	}
 	return s.finish("move", t0, map[string]any{"screen_point": [2]int{p.X, p.Y}}, in.Screenshot != nil && *in.Screenshot, s.settleFor("move")), nil, nil

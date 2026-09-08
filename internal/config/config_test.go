@@ -4,9 +4,10 @@ import "testing"
 
 func TestDefaults(t *testing.T) {
 	c := Default()
-	if c.Hotkey != "esc esc" || !c.AutoPause || c.MouseThresholdPx != 12 || c.ScreenshotLongEdge != 1366 ||
+	if c.Hotkey != "esc esc" || c.AutoPause || c.MouseThresholdPx != 12 || c.ScreenshotLongEdge != 1366 ||
 		c.ScreenshotFormat != "png" || c.JPEGQuality != 85 || c.Lang != "auto" || c.Accent != "#D97757" ||
-		!c.Overlay || c.IdleReleaseMs != 120000 || c.PauseWaitMs != 20000 || c.PasteThreshold != 200 || c.BorderThickness != 40 {
+		!c.Overlay || c.IdleReleaseMs != 120000 || c.PauseWaitMs != 20000 || c.PasteThreshold != 200 ||
+		c.BorderThickness != 56 || c.MouseGlideMs != 220 || c.BorderIntensity != 0.85 {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }
@@ -16,14 +17,14 @@ func TestFileThenEnvOverride(t *testing.T) {
 	if err := applyFile(&c, []byte(`{"hotkey":"ctrl+alt+esc","screenshot_long_edge":1024,"overlay":false}`)); err != nil {
 		t.Fatal(err)
 	}
-	if c.Hotkey != "ctrl+alt+esc" || c.ScreenshotLongEdge != 1024 || c.Overlay || c.AutoPause != true {
+	if c.Hotkey != "ctrl+alt+esc" || c.ScreenshotLongEdge != 1024 || c.Overlay || c.AutoPause != false {
 		t.Fatalf("file merge wrong: %+v", c)
 	}
-	env := map[string]string{"CU_SCREENSHOT_LONG_EDGE": "1568", "CU_AUTO_PAUSE": "false", "CU_LANG": "ru", "CU_ACCENT": "#3366FF", "CU_BORDER_THICKNESS": "60"}
+	env := map[string]string{"CU_SCREENSHOT_LONG_EDGE": "1568", "CU_AUTO_PAUSE": "false", "CU_LANG": "ru", "CU_ACCENT": "#3366FF", "CU_BORDER_THICKNESS": "60", "CU_MOUSE_GLIDE_MS": "0", "CU_BORDER_INTENSITY": "0.5"}
 	if err := applyEnv(&c, func(k string) string { return env[k] }); err != nil {
 		t.Fatal(err)
 	}
-	if c.ScreenshotLongEdge != 1568 || c.AutoPause || c.Lang != "ru" || c.Accent != "#3366FF" || c.BorderThickness != 60 {
+	if c.ScreenshotLongEdge != 1568 || c.AutoPause || c.Lang != "ru" || c.Accent != "#3366FF" || c.BorderThickness != 60 || c.MouseGlideMs != 0 || c.BorderIntensity != 0.5 {
 		t.Fatalf("env override wrong: %+v", c)
 	}
 	r, g, b, err := c.AccentRGB()

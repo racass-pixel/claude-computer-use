@@ -51,7 +51,7 @@ func runDemo(args []string) error {
 	if lang == "auto" {
 		lang = win.UserUILanguage()
 	}
-	ov, err := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: "Esc Esc", Thick: cfg.BorderThickness})
+	ov, err := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: "Esc Esc", Thick: cfg.BorderThickness, Intensity: cfg.BorderIntensity})
 	if err != nil {
 		return err
 	}

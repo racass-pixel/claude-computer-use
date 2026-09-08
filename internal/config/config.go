@@ -12,28 +12,31 @@ import (
 )
 
 type Config struct {
-	Hotkey             string `json:"hotkey"`
-	AutoPause          bool   `json:"auto_pause"`
-	MouseThresholdPx   int    `json:"mouse_threshold_px"`
-	ScreenshotLongEdge int    `json:"screenshot_long_edge"`
-	ScreenshotFormat   string `json:"screenshot_format"`
-	JPEGQuality        int    `json:"jpeg_quality"`
-	Lang               string `json:"lang"`
-	Accent             string `json:"accent"`
-	Overlay            bool   `json:"overlay"`
-	IdleReleaseMs      int    `json:"idle_release_ms"`
-	PauseWaitMs        int    `json:"pause_wait_ms"`
-	PasteThreshold     int    `json:"paste_threshold"`
-	BorderThickness    int    `json:"border_thickness"`
-	LogFile            string `json:"log_file"`
+	Hotkey             string  `json:"hotkey"`
+	AutoPause          bool    `json:"auto_pause"`
+	MouseThresholdPx   int     `json:"mouse_threshold_px"`
+	ScreenshotLongEdge int     `json:"screenshot_long_edge"`
+	ScreenshotFormat   string  `json:"screenshot_format"`
+	JPEGQuality        int     `json:"jpeg_quality"`
+	Lang               string  `json:"lang"`
+	Accent             string  `json:"accent"`
+	Overlay            bool    `json:"overlay"`
+	IdleReleaseMs      int     `json:"idle_release_ms"`
+	PauseWaitMs        int     `json:"pause_wait_ms"`
+	PasteThreshold     int     `json:"paste_threshold"`
+	BorderThickness    int     `json:"border_thickness"`
+	BorderIntensity    float64 `json:"border_intensity"`
+	MouseGlideMs       int     `json:"mouse_glide_ms"`
+	LogFile            string  `json:"log_file"`
 }
 
 func Default() Config {
 	return Config{
-		Hotkey: "esc esc", AutoPause: true, MouseThresholdPx: 12,
+		Hotkey: "esc esc", AutoPause: false, MouseThresholdPx: 12,
 		ScreenshotLongEdge: 1366, ScreenshotFormat: "png", JPEGQuality: 85,
 		Lang: "auto", Accent: "#D97757", Overlay: true,
-		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200, BorderThickness: 40,
+		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200,
+		BorderThickness: 56, BorderIntensity: 0.85, MouseGlideMs: 220,
 	}
 }
 
@@ -101,6 +104,18 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		*dst = b
 		return nil
 	}
+	float := func(key string, dst *float64) error {
+		v := getenv(key)
+		if v == "" {
+			return nil
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("%s: %q is not a number", key, v)
+		}
+		*dst = f
+		return nil
+	}
 	str("CU_HOTKEY", &c.Hotkey)
 	str("CU_SCREENSHOT_FORMAT", &c.ScreenshotFormat)
 	str("CU_LANG", &c.Lang)
@@ -116,6 +131,8 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		num("CU_PAUSE_WAIT_MS", &c.PauseWaitMs),
 		num("CU_PASTE_THRESHOLD", &c.PasteThreshold),
 		num("CU_BORDER_THICKNESS", &c.BorderThickness),
+		num("CU_MOUSE_GLIDE_MS", &c.MouseGlideMs),
+		float("CU_BORDER_INTENSITY", &c.BorderIntensity),
 	} {
 		if e != nil {
 			return e

@@ -86,7 +86,10 @@ type Overlay struct {
 
 func New(t *uithread.Thread, cfg Config) (*Overlay, error) {
 	if cfg.Thick <= 0 {
-		cfg.Thick = 40
+		cfg.Thick = 56
+	}
+	if cfg.Intensity <= 0 {
+		cfg.Intensity = 0.85
 	}
 	return &Overlay{cfg: cfg, t: t}, nil
 }
@@ -185,9 +188,11 @@ func (o *Overlay) rebuild(m platform.Monitor, s platform.OverlayState) {
 		}
 		o.strips[i].x, o.strips[i].y = rr.X, rr.Y
 	}
-	col, peak := o.cfg.Accent, 0.7
+	peak := o.cfg.Intensity
+	col := o.cfg.Accent
 	if s == platform.OverlayPaused {
-		col, peak = pausedColor, 0.5
+		col = pausedColor
+		peak *= 0.7
 	}
 	o.set = renderStrips(borderSpec{W: r.W, H: r.H, Thick: th, Color: col, Peak: peak})
 	o.frame()
@@ -202,7 +207,7 @@ func (o *Overlay) frame() {
 	if o.set == nil {
 		return
 	}
-	breath := 0.72 + 0.28*math.Sin(o.phase)
+	breath := 0.85 + 0.15*math.Sin(o.phase)
 	o.set.apply(breath)
 	for i, img := range o.set.images() {
 		if o.strips[i] != nil {
