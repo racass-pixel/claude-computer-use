@@ -159,6 +159,7 @@ func TestInputSchemasMarkOnlyRequiredFields(t *testing.T) {
 		"wait":       {},
 		"batch":      {"actions": true},
 		"control":    {"action": true},
+		"recipe":     {"action": true},
 	}
 	if len(tools.Tools) != len(allowedRequired) {
 		t.Fatalf("got %d tools, want %d: %v", len(tools.Tools), len(allowedRequired), tools.Tools)

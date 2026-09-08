@@ -161,6 +161,43 @@ func (s *Session) logTiming(tool string, t0 time.Time) {
 	s.log.Printf("tool=%s ms=%d", tool, time.Since(t0).Milliseconds())
 }
 
+// appendTrace records a completed action in the ring buffer.
+func (s *Session) appendTrace(tool, summary string, ok bool, ms int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := s.traceN % len(s.trace)
+	s.trace[idx] = traceEntry{Tool: tool, Summary: summary, OK: ok, Ms: ms, At: time.Now()}
+	s.traceN++
+}
+
+// traceEntries returns the trace newest-last (up to 200).
+func (s *Session) traceEntries() []traceEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.traceN
+	if n == 0 {
+		return nil
+	}
+	size := len(s.trace)
+	count := n
+	if count > size {
+		count = size
+	}
+	out := make([]traceEntry, count)
+	start := n - count
+	for i := 0; i < count; i++ {
+		out[i] = s.trace[(start+i)%size]
+	}
+	return out
+}
+
+// clearTrace resets the trace buffer.
+func (s *Session) clearTrace() {
+	s.mu.Lock()
+	s.traceN = 0
+	s.mu.Unlock()
+}
+
 // begin gates an action on the Controller (pause semantics, spec §7) and updates the overlay.
 func (s *Session) begin(ctx context.Context, action, summary string) *mcp.CallToolResult {
 	now := time.Now()
@@ -182,6 +219,9 @@ func (s *Session) begin(ctx context.Context, action, summary string) *mcp.CallTo
 		c.Acquire(now)
 		c.Touch(now)
 	}
+	s.mu.Lock()
+	s.traceSum = summary
+	s.mu.Unlock()
 	s.d.Overlay.SetAction(summary)
 	if m := s.activeMonitor(); m.ID != 0 {
 		s.d.Overlay.Show(m, platform.OverlayControlling)
@@ -207,6 +247,20 @@ func (s *Session) settleFor(action string) time.Duration {
 
 // finish waits for the UI to settle, captures if wanted, and builds the standard result.
 func (s *Session) finish(action string, t0 time.Time, extra map[string]any, withShot bool, settle time.Duration) *mcp.CallToolResult {
+	ms := time.Since(t0).Milliseconds()
+	s.mu.Lock()
+	summary := s.traceSum
+	s.traceSum = ""
+	s.mu.Unlock()
+	// Determine ok from extra; default true.
+	ok := true
+	if v, has := extra["ok"]; has {
+		if b, isBool := v.(bool); isBool {
+			ok = b
+		}
+	}
+	s.appendTrace(action, summary, ok, ms)
+
 	f := map[string]any{"action": action}
 	for k, v := range extra {
 		f[k] = v

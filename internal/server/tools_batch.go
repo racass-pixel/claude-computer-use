@@ -60,16 +60,13 @@ func (s *Session) batchable() map[string]batchFn {
 	}
 }
 
-func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in BatchIn) (*mcp.CallToolResult, any, error) {
-	t0 := time.Now()
-	if len(in.Actions) == 0 {
-		return errResult("bad_args", "actions is empty"), nil, nil
-	}
+// runSteps executes a sequence of BatchActions through the batchable registry.
+// It returns step results and whether all succeeded. Shared by batch and recipe run.
+func (s *Session) runSteps(ctx context.Context, actions []BatchAction, stopOnError bool) (steps []map[string]any, allOK bool) {
 	reg := s.batchable()
-	stop := in.StopOnError == nil || *in.StopOnError
-	steps := make([]map[string]any, 0, len(in.Actions))
-	allOK := true
-	for i, a := range in.Actions {
+	steps = make([]map[string]any, 0, len(actions))
+	allOK = true
+	for i, a := range actions {
 		step := map[string]any{"i": i, "tool": a.Tool}
 		fn, ok := reg[a.Tool]
 		var res *mcp.CallToolResult
@@ -92,7 +89,7 @@ func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in Ba
 			step["error"] = err.Error()
 			steps = append(steps, step)
 			allOK = false
-			if stop {
+			if stopOnError {
 				break
 			}
 			continue
@@ -111,6 +108,16 @@ func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in Ba
 		}
 		steps = append(steps, step)
 	}
+	return steps, allOK
+}
+
+func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in BatchIn) (*mcp.CallToolResult, any, error) {
+	t0 := time.Now()
+	if len(in.Actions) == 0 {
+		return errResult("bad_args", "actions is empty"), nil, nil
+	}
+	stop := in.StopOnError == nil || *in.StopOnError
+	steps, allOK := s.runSteps(ctx, in.Actions, stop)
 	f := map[string]any{"ok": allOK, "steps": steps, "completed": len(steps)}
 	var res *mcp.CallToolResult
 	if s.wantShot(in.Screenshot) {

@@ -44,6 +44,7 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 		}
 		if in.Task != "" {
 			s.d.Overlay.SetTitle(in.Task)
+			s.clearTrace()
 		}
 		if m := s.activeMonitor(); m.ID != 0 {
 			s.d.Overlay.Show(m, platform.OverlayControlling)

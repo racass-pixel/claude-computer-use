@@ -1,0 +1,376 @@
+// Package recipes stores and replays parameterised multi-step desktop procedures.
+package recipes
+
+import (
+	"crypto/sha1"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+)
+
+// batchableTools is the set of tools allowed in recipe steps.
+var batchableTools = map[string]bool{
+	"click": true, "move": true, "drag": true, "scroll": true,
+	"type": true, "key": true, "wait": true, "window": true,
+	"clipboard": true, "find": true,
+}
+
+// Step is one action in a recipe.
+type Step struct {
+	Tool string         `json:"tool"`
+	Args map[string]any `json:"args,omitempty"`
+	Note string         `json:"note,omitempty"`
+}
+
+// Recipe is a saved, parameterised sequence of desktop actions.
+type Recipe struct {
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description"`
+	App         string    `json:"app,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
+	Params      []string  `json:"params,omitempty"`
+	Steps       []Step    `json:"steps"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Runs        int       `json:"runs"`
+	Successes   int       `json:"successes"`
+}
+
+// Match is a search result.
+type Match struct {
+	Recipe Recipe  `json:"recipe"`
+	Score  float64 `json:"score"`
+}
+
+// Store manages recipes on disk.
+type Store struct {
+	Dir string
+}
+
+// Open creates the store directory if needed.
+func Open(dir string) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return &Store{Dir: dir}, nil
+}
+
+// cyrillic maps lower-case Cyrillic runes to Latin transliterations.
+var cyrillic = map[rune]string{
+	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d",
+	'е': "e", 'ё': "yo", 'ж': "zh", 'з': "z", 'и': "i",
+	'й': "y", 'к': "k", 'л': "l", 'м': "m", 'н': "n",
+	'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t",
+	'у': "u", 'ф': "f", 'х': "kh", 'ц': "ts", 'ч': "ch",
+	'ш': "sh", 'щ': "shch", 'э': "e", 'ю': "yu", 'я': "ya",
+	'ь': "", 'ъ': "",
+}
+
+var slugRe = regexp.MustCompile(`[a-z0-9]+`)
+
+// Slugify produces a lower-case ASCII slug from a name.
+func Slugify(name string) string {
+	// Transliterate Cyrillic
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if lat, ok := cyrillic[r]; ok {
+			b.WriteString(lat)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	parts := slugRe.FindAllString(b.String(), -1)
+	slug := strings.Join(parts, "-")
+	if len(slug) > 60 {
+		slug = slug[:60]
+		// Trim trailing dash
+		slug = strings.TrimRight(slug, "-")
+	}
+	if slug == "" {
+		h := sha1.Sum([]byte(name))
+		slug = fmt.Sprintf("recipe-%x", h[:4])
+	}
+	return slug
+}
+
+func validSlug(slug string) bool {
+	if slug == "" {
+		return false
+	}
+	for _, r := range slug {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) path(slug string) (string, error) {
+	if !validSlug(slug) {
+		return "", fmt.Errorf("invalid slug %q", slug)
+	}
+	return filepath.Join(s.Dir, slug+".json"), nil
+}
+
+// Save writes a recipe to disk. If a recipe with the same slug exists, it updates it.
+func (s *Store) Save(r Recipe) (Recipe, error) {
+	if len(r.Steps) == 0 {
+		return Recipe{}, fmt.Errorf("recipe must have at least one step")
+	}
+	for i, st := range r.Steps {
+		if !batchableTools[st.Tool] {
+			return Recipe{}, fmt.Errorf("step %d: tool %q is not batchable", i, st.Tool)
+		}
+	}
+	r.Slug = Slugify(r.Name)
+	now := time.Now()
+
+	// Check if existing
+	p, err := s.path(r.Slug)
+	if err != nil {
+		return Recipe{}, err
+	}
+	if existing, eerr := s.readFile(p); eerr == nil {
+		r.CreatedAt = existing.CreatedAt
+		r.Runs = existing.Runs
+		r.Successes = existing.Successes
+	} else {
+		r.CreatedAt = now
+	}
+	r.UpdatedAt = now
+
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return Recipe{}, err
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		return Recipe{}, err
+	}
+	return r, nil
+}
+
+func (s *Store) readFile(p string) (Recipe, error) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return Recipe{}, err
+	}
+	var r Recipe
+	if err := json.Unmarshal(data, &r); err != nil {
+		return Recipe{}, err
+	}
+	return r, nil
+}
+
+// Get returns a recipe by slug.
+func (s *Store) Get(slug string) (Recipe, error) {
+	p, err := s.path(slug)
+	if err != nil {
+		return Recipe{}, err
+	}
+	return s.readFile(p)
+}
+
+// List returns all recipes.
+func (s *Store) List() ([]Recipe, error) {
+	entries, err := os.ReadDir(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []Recipe
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		r, err := s.readFile(filepath.Join(s.Dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// Delete removes a recipe.
+func (s *Store) Delete(slug string) error {
+	p, err := s.path(slug)
+	if err != nil {
+		return err
+	}
+	return os.Remove(p)
+}
+
+// tokenize splits text into lower-case tokens of 2+ runes.
+func tokenize(text string) []string {
+	words := splitOnNonAlphaNum(strings.ToLower(text))
+	var out []string
+	for _, w := range words {
+		if runeLen(w) >= 2 {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func splitOnNonAlphaNum(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			cur.WriteRune(r)
+		} else {
+			if cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+			}
+		}
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	return parts
+}
+
+func runeLen(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
+}
+
+// Search finds recipes matching the query.
+func (s *Store) Search(query, app string, limit int) ([]Match, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	all, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	qTokens := tokenize(query)
+	if len(qTokens) == 0 {
+		return nil, nil
+	}
+	qSet := make(map[string]bool, len(qTokens))
+	for _, t := range qTokens {
+		qSet[t] = true
+	}
+
+	var matches []Match
+	for _, r := range all {
+		// Build document tokens from name + description + tags
+		docText := r.Name + " " + r.Description
+		for _, tag := range r.Tags {
+			docText += " " + tag
+		}
+		docTokens := tokenize(docText)
+		docSet := make(map[string]bool, len(docTokens))
+		for _, t := range docTokens {
+			docSet[t] = true
+		}
+
+		// Score = |intersection| / |query tokens|
+		hit := 0
+		for _, qt := range qTokens {
+			if docSet[qt] {
+				hit++
+			}
+		}
+		score := float64(hit) / float64(len(qTokens))
+
+		// Name bonus: if every query token appears in the name
+		nameTokens := tokenize(r.Name)
+		nameSet := make(map[string]bool, len(nameTokens))
+		for _, t := range nameTokens {
+			nameSet[t] = true
+		}
+		allInName := true
+		for _, qt := range qTokens {
+			if !nameSet[qt] {
+				allInName = false
+				break
+			}
+		}
+		if allInName {
+			score += 0.15
+		}
+
+		// App bonus
+		if app != "" && strings.EqualFold(r.App, app) {
+			score += 0.3
+		}
+
+		// Success rate bonus
+		if r.Runs > 0 {
+			score += 0.1 * float64(r.Successes) / float64(r.Runs)
+		}
+
+		if score < 0.25 {
+			continue
+		}
+		matches = append(matches, Match{Recipe: r, Score: score})
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].Score > matches[j].Score })
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+	return matches, nil
+}
+
+// Render substitutes {{param}} placeholders in recipe steps.
+func Render(r Recipe, params map[string]string) ([]Step, error) {
+	// Validate all declared params are provided
+	for _, p := range r.Params {
+		if _, ok := params[p]; !ok {
+			return nil, fmt.Errorf("missing param %q", p)
+		}
+	}
+
+	out := make([]Step, len(r.Steps))
+	for i, st := range r.Steps {
+		out[i] = Step{Tool: st.Tool, Note: st.Note}
+		if len(st.Args) > 0 {
+			out[i].Args = make(map[string]any, len(st.Args))
+			for k, v := range st.Args {
+				if sv, ok := v.(string); ok {
+					for pk, pv := range params {
+						sv = strings.ReplaceAll(sv, "{{"+pk+"}}", pv)
+					}
+					out[i].Args[k] = sv
+				} else {
+					out[i].Args[k] = v
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// Bump increments the run/success counters.
+func (s *Store) Bump(slug string, ok bool) error {
+	p, err := s.path(slug)
+	if err != nil {
+		return err
+	}
+	r, err := s.readFile(p)
+	if err != nil {
+		return err
+	}
+	r.Runs++
+	if ok {
+		r.Successes++
+	}
+	r.UpdatedAt = time.Now()
+	data, merr := json.MarshalIndent(r, "", "  ")
+	if merr != nil {
+		return merr
+	}
+	return os.WriteFile(p, data, 0o644)
+}

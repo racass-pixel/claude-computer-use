@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -21,6 +22,7 @@ import (
 	"github.com/racass-pixel/claude-computer-use/internal/ipc"
 	"github.com/racass-pixel/claude-computer-use/internal/overlay"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
+	"github.com/racass-pixel/claude-computer-use/internal/recipes"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/server"
 	"github.com/racass-pixel/claude-computer-use/internal/uia"
@@ -154,6 +156,18 @@ func runServe(args []string) error {
 		}
 	}()
 
+	var recipeStore *recipes.Store
+	if cfgDir, cerr := os.UserConfigDir(); cerr == nil {
+		recDir := filepath.Join(cfgDir, "claude-computer-use", "recipes")
+		if rs, rerr := recipes.Open(recDir); rerr != nil {
+			logger.Printf("recipes: %v (recipe tool will be unavailable)", rerr)
+		} else {
+			recipeStore = rs
+		}
+	} else {
+		logger.Printf("recipes: config dir: %v (recipe tool will be unavailable)", cerr)
+	}
+
 	deps := server.Deps{
 		Screen:     screen.New(),
 		Input:      input.New(),
@@ -162,6 +176,7 @@ func runServe(args []string) error {
 		Access:     access,
 		Controller: controller{machine},
 		Overlay:    ov,
+		Recipes:    recipeStore,
 		Version:    version,
 	}
 	return server.Run(ctx, deps, cfg, logger)
