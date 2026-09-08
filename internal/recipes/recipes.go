@@ -267,6 +267,33 @@ func splitOnNonAlphaNum(s string) []string {
 	return parts
 }
 
+// fuzzyMatchAny returns true if token shares a prefix of >= 4 runes with any candidate.
+// This handles morphological variation in inflected languages (e.g., Russian verb conjugations).
+func fuzzyMatchAny(token string, candidates []string) bool {
+	if utf8.RuneCountInString(token) < 4 {
+		return false
+	}
+	for _, c := range candidates {
+		if sharedPrefixRunes(token, c) >= 4 {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedPrefixRunes returns the number of runes shared at the start of a and b.
+func sharedPrefixRunes(a, b string) int {
+	n := 0
+	ra, rb := []rune(a), []rune(b)
+	for i := 0; i < len(ra) && i < len(rb); i++ {
+		if ra[i] != rb[i] {
+			break
+		}
+		n++
+	}
+	return n
+}
+
 func runeLen(s string) int {
 	return utf8.RuneCountInString(s)
 }
@@ -303,9 +330,11 @@ func (s *Store) Search(query, app string, limit int) ([]Match, error) {
 		}
 
 		// Score = |intersection| / |query tokens|
+		// Uses fuzzy matching: exact match or shared prefix >= 4 runes (handles
+		// morphological variation in inflected languages like Russian).
 		hit := 0
 		for _, qt := range qTokens {
-			if docSet[qt] {
+			if docSet[qt] || fuzzyMatchAny(qt, docTokens) {
 				hit++
 			}
 		}
@@ -319,7 +348,7 @@ func (s *Store) Search(query, app string, limit int) ([]Match, error) {
 		}
 		allInName := true
 		for _, qt := range qTokens {
-			if !nameSet[qt] {
+			if !nameSet[qt] && !fuzzyMatchAny(qt, nameTokens) {
 				allInName = false
 				break
 			}
