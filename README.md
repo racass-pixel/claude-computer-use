@@ -15,7 +15,7 @@ A Claude Code plugin that gives Claude full control of a Windows desktop — mou
 - **Claude-style HUD and glow** — warm dark pill with the animated Claude spark, human-readable action captions (localized ru/en), key-cap hints, accent-colored breathing border with travelling shimmer, click ripple; the orchestrator writes a task caption the user sees the whole time
 - **Instant interrupt** — Esc Esc takes control back; optionally pause on any physical input (`auto_pause: true`)
 - **Smooth mouse glide** — natural cursor movement between points
-- **Recipes** — procedural memory: Claude learns repetitive tasks and replays them in one call
+- **Recipes** — procedural memory: the server suggests matching recipes when a task starts, auto-records drafts from the trace, and tracks success rates; curated recipes rank higher than auto-recorded ones
 - **Operator agent** on Sonnet with per-task model override (Opus for judgment, Haiku for trivial repeats)
 - **Pure Go, no cgo, single binary** — MIT license
 

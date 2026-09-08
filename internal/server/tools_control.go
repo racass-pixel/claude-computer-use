@@ -7,10 +7,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
+	"github.com/racass-pixel/claude-computer-use/internal/recipes"
 )
 
 type ControlIn struct {
-	Action string `json:"action" jsonschema:"status, acquire (show the overlay now), release (hide it), or hud (set the task title shown to the user)"`
+	Action string `json:"action" jsonschema:"status, acquire (show the overlay now — returns suggested_recipes when task is given), release (hide it; auto-records a recipe draft if the trace has enough action steps), or hud (set the task title shown to the user)"`
 	Task   string `json:"task,omitempty" jsonschema:"short task title for the HUD, e.g. \"Заполняю форму заказа\""`
 	Note   string `json:"note,omitempty" jsonschema:"optional current step shown after the hotkey hint"`
 }
@@ -45,15 +46,43 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 		if in.Task != "" {
 			s.d.Overlay.SetTitle(in.Task)
 			s.clearTrace()
+
+			// Remember task caption and foreground app for auto-record.
+			fg := s.foreground()
+			s.mu.Lock()
+			s.taskCaption = in.Task
+			s.taskApp = fg.Process
+			s.recipeRanInJob = false
+			s.mu.Unlock()
 		}
 		if m := s.activeMonitor(); m.ID != 0 {
 			s.d.Overlay.Show(m, platform.OverlayControlling)
 		}
+
+		// Search for matching recipes and return suggestions.
+		f := s.controlStatus()
+		suggestions := s.suggestRecipes(in.Task)
+		f["suggested_recipes"] = suggestions
+		if len(suggestions) > 0 {
+			if score, ok := suggestions[0]["score"].(float64); ok && score >= 0.5 {
+				f["hint"] = "A matching recipe was found. Run the best match with recipe run before doing it by hand — it is much faster."
+			}
+		}
+		return okResult(f, nil), nil, nil
+
 	case "release":
+		// Auto-record before releasing.
+		s.autoRecord()
+
 		if c := s.d.Controller; c != nil {
 			c.Release(now)
 		}
 		s.d.Overlay.Hide()
+
+		// Call ReleaseHook if set (used for idle release wiring).
+		if s.ReleaseHook != nil {
+			s.ReleaseHook()
+		}
 	case "hud":
 		s.d.Overlay.SetTitle(in.Task)
 		if in.Note != "" {
@@ -63,4 +92,72 @@ func (s *Session) toolControl(ctx context.Context, req *mcp.CallToolRequest, in 
 		return errResult("bad_args", "action must be status, acquire, release or hud"), nil, nil
 	}
 	return okResult(s.controlStatus(), nil), nil, nil
+}
+
+// suggestRecipes searches the recipe store for matches, returning a slice for the response.
+func (s *Session) suggestRecipes(task string) []map[string]any {
+	if s.d.Recipes == nil || task == "" {
+		return []map[string]any{}
+	}
+	s.mu.Lock()
+	app := s.taskApp
+	s.mu.Unlock()
+	matches, err := s.d.Recipes.Search(task, app, 3)
+	if err != nil || len(matches) == 0 {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, len(matches))
+	for i, m := range matches {
+		out[i] = map[string]any{
+			"slug":      m.Recipe.Slug,
+			"name":      m.Recipe.Name,
+			"score":     m.Score,
+			"params":    m.Recipe.Params,
+			"runs":      m.Recipe.Runs,
+			"successes": m.Recipe.Successes,
+			"auto":      m.Recipe.Auto,
+		}
+	}
+	return out
+}
+
+// autoRecord saves a draft recipe automatically if the conditions are met:
+// >= 4 action steps, no recipe run in this job, and a task caption was set.
+func (s *Session) autoRecord() {
+	if s.d.Recipes == nil {
+		return
+	}
+	s.mu.Lock()
+	caption := s.taskCaption
+	app := s.taskApp
+	ranRecipe := s.recipeRanInJob
+	s.mu.Unlock()
+
+	if caption == "" || ranRecipe {
+		return
+	}
+
+	// Build trace entries for Draft.
+	entries := s.traceEntries()
+	var traceForDraft []recipes.TraceEntry
+	for _, e := range entries {
+		traceForDraft = append(traceForDraft, recipes.TraceEntry{
+			Tool:    e.Tool,
+			Args:    e.Args,
+			Summary: e.Summary,
+			OK:      e.OK,
+		})
+	}
+
+	draft := recipes.Draft(traceForDraft, caption, "", app)
+	if len(draft.Steps) < 4 {
+		return
+	}
+
+	_, _ = s.d.Recipes.Save(draft)
+}
+
+// OnRelease performs auto-recording. Called by external hooks (e.g., guard idle transition).
+func (s *Session) OnRelease() {
+	s.autoRecord()
 }

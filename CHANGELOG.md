@@ -9,7 +9,7 @@
 - Instant user interrupt: Esc Esc (configurable hotkey) takes control back
 - Mouse glide: smooth cursor movement between points (configurable duration)
 - UI Automation `find` for native apps (buttons, fields, menu items by name/role)
-- Recipes: procedural memory — save, search, run and trace multi-step procedures
+- Recipes: procedural memory — server-side suggestions on `control acquire`, auto-recorded drafts on `control release`, trace-based `recipe draft` action, success tracking with `LastError`, curated/auto ranking, failed-recipe exclusion; `recipe run` reports `failed` steps for repair
 - Operator agent (Sonnet) with per-task model override (Opus / Haiku)
 - Orchestrator skill: task decomposition, operator dispatch, result verification
 - Doctor and demo CLI commands for diagnostics and overlay preview

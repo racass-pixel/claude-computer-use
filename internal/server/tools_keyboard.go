@@ -37,7 +37,7 @@ func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in Typ
 	if in.Text == "" {
 		return errResult("bad_args", "text is empty"), nil, nil
 	}
-	if early := s.begin(ctx, "type", summarizeText(in.Text)); early != nil {
+	if early := s.begin(ctx, "type", summarizeText(in.Text), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.Type(in.Text, in.Mode, time.Duration(in.DelayMs)*time.Millisecond); err != nil {
@@ -75,7 +75,7 @@ func (s *Session) toolKey(ctx context.Context, req *mcp.CallToolRequest, in KeyI
 		}
 		chords = append(chords, c)
 	}
-	if early := s.begin(ctx, "key", "key|"+strings.Join(names, " ")); early != nil {
+	if early := s.begin(ctx, "key", "key|"+strings.Join(names, " "), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	for i, c := range chords {

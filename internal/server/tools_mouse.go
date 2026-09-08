@@ -40,7 +40,7 @@ func (s *Session) toolClick(ctx context.Context, req *mcp.CallToolRequest, in Cl
 	if err != nil {
 		return errResult("bad_modifier", err.Error()), nil, nil
 	}
-	if early := s.begin(ctx, "click", "click|"+target); early != nil {
+	if early := s.begin(ctx, "click", "click|"+target, toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.Click(p, platform.MouseButton(in.Button), in.Count, mods); err != nil {
@@ -68,7 +68,7 @@ func (s *Session) toolMove(ctx context.Context, req *mcp.CallToolRequest, in Mov
 	if err != nil {
 		return errResult("bad_target", err.Error()), nil, nil
 	}
-	if early := s.begin(ctx, "move", fmt.Sprintf("move|%d,%d", p.X, p.Y)); early != nil {
+	if early := s.begin(ctx, "move", fmt.Sprintf("move|%d,%d", p.X, p.Y), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.MoveTo(p); err != nil {
@@ -106,7 +106,7 @@ func (s *Session) toolDrag(ctx context.Context, req *mcp.CallToolRequest, in Dra
 	if err != nil {
 		return errResult("bad_target", "to: "+err.Error()), nil, nil
 	}
-	if early := s.begin(ctx, "drag", fmt.Sprintf("drag|→ %d,%d", to.X, to.Y)); early != nil {
+	if early := s.begin(ctx, "drag", fmt.Sprintf("drag|→ %d,%d", to.X, to.Y), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.Drag(from, to, platform.MouseButton(in.Button), time.Duration(in.DurationMs)*time.Millisecond); err != nil {
@@ -142,7 +142,7 @@ func (s *Session) toolScroll(ctx context.Context, req *mcp.CallToolRequest, in S
 	if in.Dx == 0 && in.Dy == 0 {
 		return errResult("bad_args", "give dx and/or dy in wheel ticks"), nil, nil
 	}
-	if early := s.begin(ctx, "scroll", fmt.Sprintf("scroll|%d,%d", in.Dx, in.Dy)); early != nil {
+	if early := s.begin(ctx, "scroll", fmt.Sprintf("scroll|%d,%d", in.Dx, in.Dy), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	if err := s.actor.Scroll(at, in.Dx, in.Dy); err != nil {
@@ -275,7 +275,7 @@ func (s *Session) toolClickUntil(ctx context.Context, req *mcp.CallToolRequest, 
 		btn = platform.ButtonLeft
 	}
 
-	if early := s.begin(ctx, "click_until", fmt.Sprintf("click_until|%d,%d probe %d,%d", clickPt.X, clickPt.Y, probePt.X, probePt.Y)); early != nil {
+	if early := s.begin(ctx, "click_until", fmt.Sprintf("click_until|%d,%d probe %d,%d", clickPt.X, clickPt.Y, probePt.X, probePt.Y), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 

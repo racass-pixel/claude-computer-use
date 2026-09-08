@@ -236,10 +236,10 @@ func TestRenderMissingParam(t *testing.T) {
 func TestBump(t *testing.T) {
 	s, _ := Open(t.TempDir())
 	saved, _ := s.Save(Recipe{Name: "Bump", Steps: []Step{{Tool: "click"}}})
-	if err := s.Bump(saved.Slug, true); err != nil {
+	if err := s.Bump(saved.Slug, true, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bump(saved.Slug, false); err != nil {
+	if err := s.Bump(saved.Slug, false, "step 2 failed"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.Get(saved.Slug)
@@ -274,6 +274,179 @@ func TestPathTraversal(t *testing.T) {
 	err = s.Delete("../evil")
 	if err == nil {
 		t.Fatal("path traversal delete should fail")
+	}
+}
+
+func TestDraftCollapsesWaitsAndParametrises(t *testing.T) {
+	trace := []TraceEntry{
+		{Tool: "screenshot", Args: map[string]any{}, OK: true},        // non-action → dropped
+		{Tool: "key", Args: map[string]any{"key": "win+r"}, OK: true}, // action
+		{Tool: "wait", Args: map[string]any{"stable": true}, OK: true},
+		{Tool: "wait", Args: map[string]any{"ms": float64(500)}, OK: true},                     // consecutive → collapsed
+		{Tool: "type", Args: map[string]any{"text": "this is a long sentence here"}, OK: true}, // > 3 words → param
+		{Tool: "key", Args: map[string]any{"key": "enter"}, OK: true},
+		{Tool: "control", Args: map[string]any{"action": "release"}, OK: true}, // non-action → dropped
+		{Tool: "click", Args: map[string]any{"x": float64(10), "y": float64(20)}, OK: true},
+	}
+	draft := Draft(trace, "Test Draft", "", "notepad.exe")
+	if !draft.Auto {
+		t.Fatal("draft must be Auto:true")
+	}
+	if draft.App != "notepad.exe" {
+		t.Fatalf("app = %q", draft.App)
+	}
+	// Should have: key, wait, type(param), key, wait(auto-inserted after win+r... already covered), click
+	// Let me count: key(win+r) → wait{stable} inserted? No, next is already wait. So: key, wait, type, key, click
+	// Actually the sequence: key(win+r) has next entry = wait, so needWait is true but nextIsWait is true → no insert.
+	// Then wait(stable) kept, wait(ms:500) collapsed (prev is wait), type → param, key(enter), click.
+	// So: key, wait, type(param), key, click = 5 steps.
+
+	// Check non-action tools were dropped
+	for _, s := range draft.Steps {
+		if s.Tool == "screenshot" || s.Tool == "control" {
+			t.Fatalf("non-action tool %q should be dropped", s.Tool)
+		}
+	}
+	// Check consecutive waits collapsed
+	prevWait := false
+	for _, s := range draft.Steps {
+		if s.Tool == "wait" {
+			if prevWait {
+				t.Fatal("consecutive waits should be collapsed")
+			}
+			prevWait = true
+		} else {
+			prevWait = false
+		}
+	}
+	// Check long type text was parameterised
+	if len(draft.Params) != 1 || draft.Params[0] != "text1" {
+		t.Fatalf("params = %v, want [text1]", draft.Params)
+	}
+	found := false
+	for _, s := range draft.Steps {
+		if s.Tool == "type" {
+			if s.Args["text"] != "{{text1}}" {
+				t.Fatalf("type text = %v, want {{text1}}", s.Args["text"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no type step found")
+	}
+}
+
+func TestDraftInsertsWaitAfterWinKey(t *testing.T) {
+	trace := []TraceEntry{
+		{Tool: "key", Args: map[string]any{"key": "win+r"}, OK: true},
+		{Tool: "type", Args: map[string]any{"text": "hi"}, OK: true},
+	}
+	draft := Draft(trace, "Test", "", "")
+	// Should insert wait{stable:true} after the win+r key
+	if len(draft.Steps) < 3 {
+		t.Fatalf("expected at least 3 steps (key, wait, type), got %d", len(draft.Steps))
+	}
+	if draft.Steps[1].Tool != "wait" {
+		t.Fatalf("step 1 should be wait, got %s", draft.Steps[1].Tool)
+	}
+	if draft.Steps[1].Args["stable"] != true {
+		t.Fatal("inserted wait should have stable:true")
+	}
+}
+
+func TestSearchPrefersCuratedOverAuto(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	s.Save(Recipe{
+		Name:        "Open Notepad",
+		Description: "open notepad via run dialog",
+		Auto:        true,
+		Steps:       []Step{{Tool: "key"}},
+	})
+	s.Save(Recipe{
+		Name:        "Open Notepad curated",
+		Description: "open notepad via run dialog",
+		Steps:       []Step{{Tool: "key"}},
+	})
+	matches, _ := s.Search("open notepad", "", 5)
+	if len(matches) < 2 {
+		t.Fatalf("expected 2 matches, got %d", len(matches))
+	}
+	// Curated should rank first (it has +0.1 bonus)
+	if matches[0].Recipe.Auto {
+		t.Fatal("curated recipe should rank above auto")
+	}
+}
+
+func TestSearchDropsRepeatedFailures(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	saved, _ := s.Save(Recipe{
+		Name:        "Failing recipe",
+		Description: "this recipe always fails",
+		Steps:       []Step{{Tool: "key"}},
+	})
+	// Bump 2 failures
+	s.Bump(saved.Slug, false, "err1")
+	s.Bump(saved.Slug, false, "err2")
+
+	matches, _ := s.Search("failing recipe", "", 5)
+	if len(matches) != 0 {
+		t.Fatalf("expected failing recipe (runs>=2, successes=0) to be excluded, got %d matches", len(matches))
+	}
+}
+
+func TestSaveResetsCountersOnCuratedOverwrite(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	saved, _ := s.Save(Recipe{Name: "Counter", Steps: []Step{{Tool: "click"}}})
+	s.Bump(saved.Slug, true, "")
+	s.Bump(saved.Slug, true, "")
+
+	got, _ := s.Get(saved.Slug)
+	if got.Runs != 2 {
+		t.Fatalf("runs before resave = %d, want 2", got.Runs)
+	}
+
+	// Resave (curated, not auto) should reset counters
+	resaved, _ := s.Save(Recipe{Name: "Counter", Description: "updated", Steps: []Step{{Tool: "key"}}})
+	if resaved.Runs != 0 || resaved.Successes != 0 {
+		t.Fatalf("after curated resave: runs=%d successes=%d, want 0/0", resaved.Runs, resaved.Successes)
+	}
+}
+
+func TestAutoSaveDoesNotOverwriteCurated(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	// Save a curated recipe
+	s.Save(Recipe{Name: "My Task", Steps: []Step{{Tool: "click"}}})
+
+	// Auto-save with same name should get a different slug
+	auto, _ := s.Save(Recipe{Name: "My Task", Auto: true, Steps: []Step{{Tool: "key"}}})
+	if auto.Slug == "my-task" {
+		t.Fatal("auto recipe should not overwrite curated slug")
+	}
+	if auto.Slug != "my-task-2" {
+		t.Fatalf("auto slug = %q, want my-task-2", auto.Slug)
+	}
+
+	// Original curated recipe still intact
+	curated, _ := s.Get("my-task")
+	if curated.Steps[0].Tool != "click" {
+		t.Fatal("curated recipe was overwritten")
+	}
+}
+
+func TestBumpStoresLastError(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	saved, _ := s.Save(Recipe{Name: "Err", Steps: []Step{{Tool: "click"}}})
+	s.Bump(saved.Slug, false, "step 3: click failed")
+	got, _ := s.Get(saved.Slug)
+	if got.LastError != "step 3: click failed" {
+		t.Fatalf("LastError = %q", got.LastError)
+	}
+	// Success clears LastError
+	s.Bump(saved.Slug, true, "")
+	got, _ = s.Get(saved.Slug)
+	if got.LastError != "" {
+		t.Fatalf("LastError after success = %q, want empty", got.LastError)
 	}
 }
 

@@ -41,6 +41,8 @@ type Recipe struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 	Runs        int       `json:"runs"`
 	Successes   int       `json:"successes"`
+	Auto        bool      `json:"auto,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 }
 
 // Match is a search result.
@@ -119,7 +121,9 @@ func (s *Store) path(slug string) (string, error) {
 	return filepath.Join(s.Dir, slug+".json"), nil
 }
 
-// Save writes a recipe to disk. If a recipe with the same slug exists, it updates it.
+// Save writes a recipe to disk. If a recipe with the same slug exists, it replaces
+// it and resets run counters. Auto-save recipes never overwrite curated (non-auto) ones;
+// they get a -2, -3 … suffix instead.
 func (s *Store) Save(r Recipe) (Recipe, error) {
 	if len(r.Steps) == 0 {
 		return Recipe{}, fmt.Errorf("recipe must have at least one step")
@@ -132,15 +136,40 @@ func (s *Store) Save(r Recipe) (Recipe, error) {
 	r.Slug = Slugify(r.Name)
 	now := time.Now()
 
-	// Check if existing
+	// Auto recipes must not overwrite curated ones — find a free slug.
+	if r.Auto {
+		base := r.Slug
+		for n := 2; ; n++ {
+			p, err := s.path(r.Slug)
+			if err != nil {
+				return Recipe{}, err
+			}
+			existing, eerr := s.readFile(p)
+			if eerr != nil {
+				break // slot is free
+			}
+			if existing.Auto {
+				break // ok to overwrite another auto recipe
+			}
+			r.Slug = fmt.Sprintf("%s-%d", base, n)
+		}
+	}
+
 	p, err := s.path(r.Slug)
 	if err != nil {
 		return Recipe{}, err
 	}
 	if existing, eerr := s.readFile(p); eerr == nil {
 		r.CreatedAt = existing.CreatedAt
-		r.Runs = existing.Runs
-		r.Successes = existing.Successes
+		// A manual save on the same slug resets counters (recipe was updated/replaced).
+		if !r.Auto {
+			r.Runs = 0
+			r.Successes = 0
+			r.LastError = ""
+		} else {
+			r.Runs = existing.Runs
+			r.Successes = existing.Successes
+		}
 	} else {
 		r.CreatedAt = now
 	}
@@ -307,9 +336,19 @@ func (s *Store) Search(query, app string, limit int) ([]Match, error) {
 			score += 0.3
 		}
 
+		// Curated (non-auto) bonus
+		if !r.Auto {
+			score += 0.1
+		}
+
 		// Success rate bonus
 		if r.Runs > 0 {
 			score += 0.1 * float64(r.Successes) / float64(r.Runs)
+		}
+
+		// Drop recipes that have been run ≥ 2 times with zero successes
+		if r.Runs >= 2 && r.Successes == 0 {
+			continue
 		}
 
 		if score < 0.25 {
@@ -353,8 +392,8 @@ func Render(r Recipe, params map[string]string) ([]Step, error) {
 	return out, nil
 }
 
-// Bump increments the run/success counters.
-func (s *Store) Bump(slug string, ok bool) error {
+// Bump increments the run/success counters; on failure stores the error text.
+func (s *Store) Bump(slug string, ok bool, lastErr string) error {
 	p, err := s.path(slug)
 	if err != nil {
 		return err
@@ -366,6 +405,9 @@ func (s *Store) Bump(slug string, ok bool) error {
 	r.Runs++
 	if ok {
 		r.Successes++
+		r.LastError = ""
+	} else {
+		r.LastError = lastErr
 	}
 	r.UpdatedAt = time.Now()
 	data, merr := json.MarshalIndent(r, "", "  ")
@@ -373,4 +415,129 @@ func (s *Store) Bump(slug string, ok bool) error {
 		return merr
 	}
 	return os.WriteFile(p, data, 0o644)
+}
+
+// TraceEntry is a completed tool invocation recorded by the server.
+type TraceEntry struct {
+	Tool    string
+	Args    map[string]any
+	Summary string
+	OK      bool
+}
+
+// actionTools are the tools that represent real user actions (for draft building).
+var actionTools = map[string]bool{
+	"click": true, "drag": true, "scroll": true,
+	"type": true, "key": true, "window": true,
+	"wait": true, "click_until": true, "find": true,
+}
+
+// Draft builds a Recipe from a trace of completed actions.
+// It keeps only action tools, collapses consecutive waits, parameterises long type texts,
+// inserts wait{stable:true} after window focus / key win+*, and sets Auto: true.
+func Draft(trace []TraceEntry, name, description, app string) Recipe {
+	var steps []Step
+	var params []string
+	paramN := 0
+
+	for i, e := range trace {
+		if !actionTools[e.Tool] {
+			continue
+		}
+		args := cloneArgs(e.Args)
+
+		// Strip screenshot/region/pixel fields from args
+		delete(args, "screenshot")
+		delete(args, "screenshot_region")
+
+		// Collapse consecutive waits: skip if prev step is also wait
+		if e.Tool == "wait" && len(steps) > 0 && steps[len(steps)-1].Tool == "wait" {
+			continue
+		}
+
+		// Parameterise long type texts (> 3 words)
+		if e.Tool == "type" {
+			if text, ok := args["text"].(string); ok {
+				if wordCount(text) > 3 {
+					paramN++
+					pname := fmt.Sprintf("text%d", paramN)
+					params = append(params, pname)
+					args["text"] = "{{" + pname + "}}"
+				}
+			}
+		}
+
+		steps = append(steps, Step{Tool: e.Tool, Args: args, Note: e.Summary})
+
+		// Insert wait{stable:true} after window focus or key win+*
+		needWait := false
+		if e.Tool == "window" {
+			if act, ok := e.Args["action"].(string); ok && act == "focus" {
+				needWait = true
+			}
+		}
+		if e.Tool == "key" {
+			k, _ := e.Args["key"].(string)
+			if strings.HasPrefix(strings.ToLower(k), "win+") {
+				needWait = true
+			}
+			// Also check keys array
+			if ks, ok := e.Args["keys"].([]any); ok {
+				for _, kv := range ks {
+					if s, ok := kv.(string); ok && strings.HasPrefix(strings.ToLower(s), "win+") {
+						needWait = true
+					}
+				}
+			}
+		}
+		if needWait {
+			// Don't add if next trace entry is already a wait
+			nextIsWait := i+1 < len(trace) && trace[i+1].Tool == "wait"
+			if !nextIsWait {
+				steps = append(steps, Step{Tool: "wait", Args: map[string]any{"stable": true}})
+			}
+		}
+	}
+
+	if description == "" && name != "" {
+		description = name
+		if app != "" {
+			description += " (" + app + ")"
+		}
+	}
+
+	return Recipe{
+		Name:        name,
+		Slug:        Slugify(name),
+		Description: description,
+		App:         app,
+		Params:      params,
+		Steps:       steps,
+		Auto:        true,
+	}
+}
+
+func cloneArgs(m map[string]any) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func wordCount(s string) int {
+	n := 0
+	inWord := false
+	for _, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' {
+			inWord = false
+		} else if !inWord {
+			inWord = true
+			n++
+		}
+	}
+	return n
 }

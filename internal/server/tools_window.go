@@ -84,7 +84,7 @@ func (s *Session) toolWindow(ctx context.Context, req *mcp.CallToolRequest, in W
 	if err != nil {
 		return errResult("no_window", err.Error()), nil, nil
 	}
-	if early := s.begin(ctx, "window", fmt.Sprintf("window|%s %q", in.Action, w.Title)); early != nil {
+	if early := s.begin(ctx, "window", fmt.Sprintf("window|%s %q", in.Action, w.Title), toArgsMap(in)); early != nil {
 		return early, nil, nil
 	}
 	switch in.Action {

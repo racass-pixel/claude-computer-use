@@ -59,17 +59,27 @@ type Session struct {
 	elemRefs []any
 
 	// trace is a ring buffer of the last 200 actions (newest at the end).
-	trace    [200]traceEntry
-	traceN   int    // total entries ever written
-	traceSum string // summary set by begin(), consumed by finish()
+	trace     [200]traceEntry
+	traceN    int            // total entries ever written
+	traceSum  string         // summary set by begin(), consumed by finish()
+	traceArgs map[string]any // sanitized args set by begin(), consumed by finish()
+
+	// Job state for recipe suggestions and auto-recording.
+	taskCaption    string // set by acquire with a task
+	taskApp        string // foreground process at acquire time
+	recipeRanInJob bool   // true if recipe run was called in this job
+
+	// ReleaseHook is called by the server when control is released (both explicit and idle).
+	ReleaseHook func()
 }
 
 type traceEntry struct {
-	Tool    string    `json:"tool"`
-	Summary string    `json:"summary"`
-	OK      bool      `json:"ok"`
-	Ms      int64     `json:"ms"`
-	At      time.Time `json:"at"`
+	Tool    string         `json:"tool"`
+	Summary string         `json:"summary"`
+	Args    map[string]any `json:"args,omitempty"`
+	OK      bool           `json:"ok"`
+	Ms      int64          `json:"ms"`
+	At      time.Time      `json:"at"`
 }
 
 func New(d Deps, cfg config.Config, logger *log.Logger) *Session {
@@ -104,8 +114,8 @@ func (s *Session) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "pixel", Description: "Read the color of one or more pixels (last-screenshot coordinates). Use it to learn the color of a visual cue (a filled star, a badge, a status dot) before click_until."}, s.toolPixel)
 	mcp.AddTool(srv, &mcp.Tool{Name: "click_until", Description: "Grind through a list without screenshots: click a point repeatedly (e.g. Deny on the top row) until a probe pixel turns (or stops being) a color, e.g. until the 5th star of the top row is yellow. Runs server-side at interval_ms per click; returns the click count and why it stopped. Then handle the matching item yourself."}, s.toolClickUntil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "batch", Description: "Run several actions in one call when you are confident of the sequence (e.g. click a field, type, press Enter). Steps run without screenshots; one screenshot is returned at the end. Stops at the first failure."}, s.toolBatch)
-	mcp.AddTool(srv, &mcp.Tool{Name: "control", Description: "Session control: status (are you controlling / did the user pause), acquire (show the take-over overlay now), release (hide it when the task is done), hud (set the task title the user sees)."}, s.toolControl)
-	mcp.AddTool(srv, &mcp.Tool{Name: "recipe", Description: "Procedural memory. search: find a saved recipe for a task you may have done before (do this before multi-step work). run: replay a recipe by slug with values for its {{params}} — fast, no screenshots between steps; verify the result after. trace: the actions performed so far in this task, to distil into a recipe. save: store a recipe (name in the user's language, description with synonyms, params for variable text/paths, wait steps between app transitions). get/list/delete manage them."}, s.toolRecipe)
+	mcp.AddTool(srv, &mcp.Tool{Name: "control", Description: "Session control: status (are you controlling / did the user pause), acquire (show the take-over overlay now; returns suggested_recipes when task is given — if one scores >= 0.5, run it with recipe run before doing the job by hand), release (hide it when the task is done; auto-records a recipe draft when the trace has enough actions), hud (set the task title the user sees)."}, s.toolControl)
+	mcp.AddTool(srv, &mcp.Tool{Name: "recipe", Description: "Procedural memory. search: find a saved recipe. run: replay a recipe by slug with values for its {{params}} — fast, no screenshots between steps; reports failed steps so you can finish by hand. draft: build a recipe from the current trace (keeps action tools, parametrises long texts, adds wait steps). trace: the actions performed so far. save: store a recipe (name in the user's language, description with synonyms, params for variable text/paths, wait steps between app transitions); saving on an existing slug replaces it and resets counters. get/list/delete manage them."}, s.toolRecipe)
 }
 
 func Run(ctx context.Context, d Deps, cfg config.Config, logger *log.Logger) error {

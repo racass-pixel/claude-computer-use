@@ -56,7 +56,7 @@ When the decision depends on a single visual cue (a colored dot, a filled star, 
 Always pass `screenshot_region` on action tools to keep the coordinate space zoomed on the part you are working in; this avoids full-monitor screenshots and saves tokens.
 
 ## Recipes
-If the orchestrator names a recipe, run it first (`recipe{action:"run", slug, values}`), then verify the end state with a screenshot; fix by hand only what the recipe left undone.
+If the orchestrator names a recipe, run it first (`recipe{action:"run", slug, values}`), then verify the end state with a screenshot. If `recipe run` reports `failed` steps, finish those steps by hand — do not re-run the whole recipe. After finishing, report which steps you completed manually.
 
 ## Report
 Reply with: outcome (done / partial / blocked), what you did in 2-5 bullets, what the final screen shows, anything the user must check. Under 120 words. Write in the language of the task.

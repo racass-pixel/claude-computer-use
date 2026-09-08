@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -178,12 +179,63 @@ func (s *Session) logTiming(tool string, t0 time.Time) {
 }
 
 // appendTrace records a completed action in the ring buffer.
-func (s *Session) appendTrace(tool, summary string, ok bool, ms int64) {
+func (s *Session) appendTrace(tool, summary string, args map[string]any, ok bool, ms int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := s.traceN % len(s.trace)
-	s.trace[idx] = traceEntry{Tool: tool, Summary: summary, OK: ok, Ms: ms, At: time.Now()}
+	s.trace[idx] = traceEntry{Tool: tool, Summary: summary, Args: args, OK: ok, Ms: ms, At: time.Now()}
 	s.traceN++
+}
+
+// sanitizeArgs strips screenshot data and truncates long strings for trace storage.
+func sanitizeArgs(args map[string]any) map[string]any {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(args))
+	for k, v := range args {
+		if k == "screenshot" || k == "screenshot_region" {
+			continue
+		}
+		if sv, ok := v.(string); ok {
+			if runeCount(sv) > 200 {
+				runes := []rune(sv)
+				out[k] = string(runes[:200])
+			} else {
+				out[k] = sv
+			}
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func runeCount(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
+}
+
+// toArgsMap converts a typed input struct to map[string]any for trace recording.
+func toArgsMap(v any) map[string]any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	// Strip zero-value fields that json.Marshal includes
+	for k, val := range m {
+		if val == nil {
+			delete(m, k)
+		}
+	}
+	return m
 }
 
 // traceEntries returns the trace newest-last (up to 200).
@@ -215,7 +267,7 @@ func (s *Session) clearTrace() {
 }
 
 // begin gates an action on the Controller (pause semantics, spec §7) and updates the overlay.
-func (s *Session) begin(ctx context.Context, action, summary string) *mcp.CallToolResult {
+func (s *Session) begin(ctx context.Context, action, summary string, rawArgs ...map[string]any) *mcp.CallToolResult {
 	now := time.Now()
 	if c := s.d.Controller; c != nil {
 		if c.IsPaused() {
@@ -235,8 +287,13 @@ func (s *Session) begin(ctx context.Context, action, summary string) *mcp.CallTo
 		c.Acquire(now)
 		c.Touch(now)
 	}
+	var sa map[string]any
+	if len(rawArgs) > 0 {
+		sa = sanitizeArgs(rawArgs[0])
+	}
 	s.mu.Lock()
 	s.traceSum = summary
+	s.traceArgs = sa
 	s.mu.Unlock()
 	s.d.Overlay.SetAction(summary)
 	if m := s.activeMonitor(); m.ID != 0 {
@@ -266,7 +323,9 @@ func (s *Session) finish(action string, t0 time.Time, extra map[string]any, shot
 	ms := time.Since(t0).Milliseconds()
 	s.mu.Lock()
 	summary := s.traceSum
+	args := s.traceArgs
 	s.traceSum = ""
+	s.traceArgs = nil
 	s.mu.Unlock()
 	// Determine ok from extra; default true.
 	ok := true
@@ -275,7 +334,7 @@ func (s *Session) finish(action string, t0 time.Time, extra map[string]any, shot
 			ok = b
 		}
 	}
-	s.appendTrace(action, summary, ok, ms)
+	s.appendTrace(action, summary, args, ok, ms)
 
 	f := map[string]any{"action": action}
 	for k, v := range extra {

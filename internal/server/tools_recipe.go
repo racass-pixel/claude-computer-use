@@ -10,7 +10,7 @@ import (
 )
 
 type RecipeIn struct {
-	Action      string            `json:"action" jsonschema:"search, get, save, run, delete, trace or list"`
+	Action      string            `json:"action" jsonschema:"search, get, save, run, delete, draft, trace or list"`
 	Query       string            `json:"query,omitempty"`
 	App         string            `json:"app,omitempty"`
 	Slug        string            `json:"slug,omitempty"`
@@ -41,8 +41,10 @@ func (s *Session) toolRecipe(ctx context.Context, req *mcp.CallToolRequest, in R
 		return s.recipeDelete(in)
 	case "list":
 		return s.recipeList()
+	case "draft":
+		return s.recipeDraft(in)
 	default:
-		return errResult("bad_args", "action must be search, get, save, run, delete, trace or list"), nil, nil
+		return errResult("bad_args", "action must be search, get, save, run, delete, draft, trace or list"), nil, nil
 	}
 }
 
@@ -50,15 +52,49 @@ func (s *Session) recipeTrace() (*mcp.CallToolResult, any, error) {
 	entries := s.traceEntries()
 	out := make([]map[string]any, len(entries))
 	for i, e := range entries {
-		out[i] = map[string]any{
+		m := map[string]any{
 			"tool":    e.Tool,
 			"summary": e.Summary,
 			"ok":      e.OK,
 			"ms":      e.Ms,
 			"at":      e.At.Format(time.RFC3339),
 		}
+		if len(e.Args) > 0 {
+			m["args"] = e.Args
+		}
+		out[i] = m
 	}
 	return okResult(map[string]any{"trace": out, "count": len(out)}, nil), nil, nil
+}
+
+func (s *Session) recipeDraft(in RecipeIn) (*mcp.CallToolResult, any, error) {
+	entries := s.traceEntries()
+	var traceForDraft []recipes.TraceEntry
+	for _, e := range entries {
+		traceForDraft = append(traceForDraft, recipes.TraceEntry{
+			Tool:    e.Tool,
+			Args:    e.Args,
+			Summary: e.Summary,
+			OK:      e.OK,
+		})
+	}
+
+	name := in.Name
+	if name == "" {
+		s.mu.Lock()
+		name = s.taskCaption
+		s.mu.Unlock()
+	}
+	if name == "" {
+		name = "Untitled recipe"
+	}
+
+	s.mu.Lock()
+	app := s.taskApp
+	s.mu.Unlock()
+
+	draft := recipes.Draft(traceForDraft, name, in.Description, app)
+	return okResult(map[string]any{"draft": draft}, nil), nil, nil
 }
 
 func (s *Session) requireStore() *mcp.CallToolResult {
@@ -94,6 +130,7 @@ func (s *Session) recipeSearch(in RecipeIn) (*mcp.CallToolResult, any, error) {
 			"score":       m.Score,
 			"runs":        m.Recipe.Runs,
 			"successes":   m.Recipe.Successes,
+			"auto":        m.Recipe.Auto,
 		}
 	}
 	return okResult(map[string]any{"matches": out, "count": len(out)}, nil), nil, nil
@@ -167,7 +204,23 @@ func (s *Session) recipeRun(ctx context.Context, in RecipeIn) (*mcp.CallToolResu
 	steps, allOK := s.runSteps(ctx, actions, stop)
 
 	// Bump counters
-	_ = s.d.Recipes.Bump(in.Slug, allOK)
+	// Collect failed steps
+	var failedSteps []map[string]any
+	var lastErrMsg string
+	for _, st := range steps {
+		if st["ok"] != true {
+			failedSteps = append(failedSteps, st)
+			if e, ok := st["error"].(string); ok {
+				lastErrMsg = e
+			}
+		}
+	}
+	_ = s.d.Recipes.Bump(in.Slug, allOK, lastErrMsg)
+
+	// Mark that a recipe was run in this job
+	s.mu.Lock()
+	s.recipeRanInJob = true
+	s.mu.Unlock()
 
 	// Re-read for updated counts
 	updated, _ := s.d.Recipes.Get(in.Slug)
@@ -179,6 +232,9 @@ func (s *Session) recipeRun(ctx context.Context, in RecipeIn) (*mcp.CallToolResu
 		"completed": len(steps),
 		"runs":      updated.Runs,
 		"successes": updated.Successes,
+	}
+	if len(failedSteps) > 0 {
+		f["failed"] = failedSteps
 	}
 	if s.wantShot(in.Screenshot) {
 		return s.finish("recipe", t0, f, shotSpec{Want: true}, 120*time.Millisecond), nil, nil
@@ -216,6 +272,7 @@ func (s *Session) recipeList() (*mcp.CallToolResult, any, error) {
 			"app":         r.App,
 			"runs":        r.Runs,
 			"successes":   r.Successes,
+			"auto":        r.Auto,
 		}
 	}
 	return okResult(map[string]any{"recipes": out, "count": len(out)}, nil), nil, nil

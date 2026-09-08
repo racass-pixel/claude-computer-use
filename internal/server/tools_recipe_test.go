@@ -213,4 +213,207 @@ func TestRecipeDelete(t *testing.T) {
 	}
 }
 
+func TestAcquireReturnsSuggestedRecipes(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Save a matching recipe
+	h.s.toolRecipe(ctx, nil, RecipeIn{
+		Action:      "save",
+		Name:        "Open Notepad",
+		Description: "open notepad via win+r run dialog",
+		Steps:       []recipes.Step{{Tool: "key", Args: map[string]any{"key": "win+r"}}},
+	})
+
+	// Acquire with a task that matches
+	res, _, _ := h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Open Notepad via Run"})
+	fields, _ := decode(t, res)
+
+	suggestions, ok := fields["suggested_recipes"].([]any)
+	if !ok {
+		t.Fatalf("suggested_recipes not in response: %v", fields)
+	}
+	if len(suggestions) == 0 {
+		t.Fatal("expected at least one suggested recipe")
+	}
+	first := suggestions[0].(map[string]any)
+	if first["slug"] != "open-notepad" {
+		t.Fatalf("first suggestion slug = %v", first["slug"])
+	}
+	if first["score"].(float64) < 0.5 {
+		t.Fatalf("score = %v, expected >= 0.5", first["score"])
+	}
+}
+
+func TestAcquireEmptyStoreReturnEmptyList(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	res, _, _ := h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "anything"})
+	fields, _ := decode(t, res)
+	suggestions, ok := fields["suggested_recipes"].([]any)
+	if !ok {
+		t.Fatal("suggested_recipes not in response")
+	}
+	if len(suggestions) != 0 {
+		t.Fatalf("expected empty suggestions, got %d", len(suggestions))
+	}
+}
+
+func TestReleaseAutoRecordsRecipe(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Acquire with a task
+	h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Test auto record"})
+
+	// Perform >= 4 action tool calls
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(100), Y: intPtr(100)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(200), Y: intPtr(200)})
+	h.s.toolType(ctx, nil, TypeIn{Text: "hello"})
+	h.s.toolKey(ctx, nil, KeyIn{Key: "enter"})
+
+	// Release should auto-record
+	h.s.toolControl(ctx, nil, ControlIn{Action: "release"})
+
+	// Check recipe was saved
+	all, err := h.s.d.Recipes.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range all {
+		if r.Auto && r.Name == "Test auto record" {
+			found = true
+			if len(r.Steps) < 4 {
+				t.Fatalf("auto-recorded recipe has only %d steps", len(r.Steps))
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no auto-recorded recipe found after release")
+	}
+}
+
+func TestReleaseNoAutoRecordWhenRecipeRan(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Save a recipe to run
+	h.s.toolRecipe(ctx, nil, RecipeIn{
+		Action: "save",
+		Name:   "Quick click",
+		Steps:  []recipes.Step{{Tool: "click"}},
+	})
+
+	// Acquire
+	h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Quick click test"})
+
+	// Run the recipe
+	h.s.toolRecipe(ctx, nil, RecipeIn{Action: "run", Slug: "quick-click"})
+
+	// Do extra actions
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(100), Y: intPtr(100)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(200), Y: intPtr(200)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(300), Y: intPtr(300)})
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(400), Y: intPtr(400)})
+
+	// Release
+	h.s.toolControl(ctx, nil, ControlIn{Action: "release"})
+
+	// Should NOT auto-record because a recipe was run
+	all, _ := h.s.d.Recipes.List()
+	for _, r := range all {
+		if r.Auto {
+			t.Fatal("should not auto-record when a recipe was run in the job")
+		}
+	}
+}
+
+func TestRecipeRunReportsFailedSteps(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Save a recipe with a step that will fail (drag needs from/to)
+	h.s.toolRecipe(ctx, nil, RecipeIn{
+		Action: "save",
+		Name:   "Failing steps test",
+		Steps: []recipes.Step{
+			{Tool: "type", Args: map[string]any{"text": "ok"}},
+			{Tool: "drag"}, // will fail: no from/to
+		},
+	})
+
+	stopFalse := false
+	res, _, _ := h.s.toolRecipe(ctx, nil, RecipeIn{
+		Action:      "run",
+		Slug:        "failing-steps-test",
+		StopOnError: &stopFalse,
+	})
+	fields, _ := decode(t, res)
+	if fields["ok"] != false {
+		t.Fatal("expected ok=false for failing recipe")
+	}
+	failed, ok := fields["failed"].([]any)
+	if !ok || len(failed) == 0 {
+		t.Fatalf("expected failed steps in result, got %v", fields["failed"])
+	}
+	// Check that successes was not incremented
+	if fields["successes"] != float64(0) {
+		t.Fatalf("successes = %v, want 0", fields["successes"])
+	}
+	if fields["runs"] != float64(1) {
+		t.Fatalf("runs = %v, want 1", fields["runs"])
+	}
+}
+
+func TestRecipeDraftAction(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	// Acquire to set caption
+	h.s.toolControl(ctx, nil, ControlIn{Action: "acquire", Task: "Draft test"})
+
+	// Perform actions
+	h.s.toolClick(ctx, nil, ClickIn{X: intPtr(100), Y: intPtr(100)})
+	h.s.toolType(ctx, nil, TypeIn{Text: "hello"})
+	h.s.toolKey(ctx, nil, KeyIn{Key: "enter"})
+
+	// Call draft
+	res, _, _ := h.s.toolRecipe(ctx, nil, RecipeIn{Action: "draft"})
+	fields, _ := decode(t, res)
+	draft, ok := fields["draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("draft not in result: %v", fields)
+	}
+	if draft["name"] != "Draft test" {
+		t.Fatalf("draft name = %v", draft["name"])
+	}
+	if draft["auto"] != true {
+		t.Fatal("draft should have auto:true")
+	}
+}
+
+func TestTraceContainsArgs(t *testing.T) {
+	h := newRecipeHarness(t)
+	ctx := context.Background()
+
+	h.s.toolKey(ctx, nil, KeyIn{Key: "enter"})
+
+	res, _, _ := h.s.toolRecipe(ctx, nil, RecipeIn{Action: "trace"})
+	fields, _ := decode(t, res)
+	trace := fields["trace"].([]any)
+	if len(trace) == 0 {
+		t.Fatal("trace empty")
+	}
+	entry := trace[len(trace)-1].(map[string]any)
+	args, ok := entry["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("trace entry has no args: %v", entry)
+	}
+	if args["key"] != "enter" {
+		t.Fatalf("args key = %v", args["key"])
+	}
+}
+
 func intPtr(i int) *int { return &i }
