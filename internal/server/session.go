@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
+	"github.com/racass-pixel/claude-computer-use/internal/input"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 )
@@ -155,4 +159,120 @@ func (s *Session) capture(spec captureSpec) (*screen.Shot, Meta, error) {
 
 func (s *Session) logTiming(tool string, t0 time.Time) {
 	s.log.Printf("tool=%s ms=%d", tool, time.Since(t0).Milliseconds())
+}
+
+// begin gates an action on the Controller (pause semantics, spec §7) and updates the overlay.
+func (s *Session) begin(ctx context.Context, action, summary string) *mcp.CallToolResult {
+	now := time.Now()
+	if c := s.d.Controller; c != nil {
+		if c.IsPaused() {
+			wctx, cancel := context.WithTimeout(ctx, time.Duration(s.cfg.PauseWaitMs)*time.Millisecond)
+			resumed := c.WaitResume(wctx)
+			cancel()
+			if !resumed {
+				return errResult("user_took_control", "The user took control of the computer (hotkey or physical input). Stop now, report what was done and what remains, and wait for the user to ask you to continue.")
+			}
+			shot, meta, err := s.capture(captureSpec{})
+			f := map[string]any{"ok": false, "resumed": true, "note": "The user handed control back. This action was NOT performed; look at the fresh screenshot and continue from the current state."}
+			if err == nil {
+				meta.into(f)
+			}
+			return okResult(f, shot)
+		}
+		c.Acquire(now)
+		c.Touch(now)
+	}
+	s.d.Overlay.SetAction(summary)
+	if m := s.activeMonitor(); m.ID != 0 {
+		s.d.Overlay.Show(m, platform.OverlayControlling)
+	}
+	return nil
+}
+
+func (s *Session) settleFor(action string) time.Duration {
+	switch action {
+	case "click", "key":
+		return 100 * time.Millisecond
+	case "type":
+		return 60 * time.Millisecond
+	case "scroll":
+		return 120 * time.Millisecond
+	case "drag":
+		return 150 * time.Millisecond
+	case "window":
+		return 200 * time.Millisecond
+	}
+	return 50 * time.Millisecond
+}
+
+// finish waits for the UI to settle, captures if wanted, and builds the standard result.
+func (s *Session) finish(action string, t0 time.Time, extra map[string]any, withShot bool, settle time.Duration) *mcp.CallToolResult {
+	f := map[string]any{"action": action}
+	for k, v := range extra {
+		f[k] = v
+	}
+	var shot *screen.Shot
+	if withShot {
+		time.Sleep(settle)
+		var err error
+		var meta Meta
+		shot, meta, err = s.capture(captureSpec{monitor: s.sameMonitorSpec()})
+		if err == nil {
+			meta.into(f)
+		} else {
+			f["screenshot_error"] = err.Error()
+		}
+	} else {
+		s.metaFor(s.currentView()).into(f)
+	}
+	f["ms"] = time.Since(t0).Milliseconds()
+	s.logTiming(action, t0)
+	return okResult(f, shot)
+}
+
+// sameMonitorSpec keeps follow-up screenshots on the monitor of the current view (region views reset to full monitor).
+func (s *Session) sameMonitorSpec() string {
+	v := s.currentView()
+	if v.Monitor == 0 {
+		return "all"
+	}
+	return strconv.Itoa(v.Monitor)
+}
+
+func (s *Session) wantShot(p *bool) bool { return p == nil || *p }
+
+// resolvePoint turns image-space x,y or an element id into a screen point.
+func (s *Session) resolvePoint(x, y *int, element string) (geom.Point, error) {
+	if element != "" {
+		s.mu.Lock()
+		el, ok := s.elements[element]
+		s.mu.Unlock()
+		if !ok {
+			return geom.Point{}, fmt.Errorf("unknown element %q (ids are valid only until the next find)", element)
+		}
+		r := el.Rect
+		if s.d.Access != nil {
+			if fresh, err := s.d.Access.Rect(el.Ref); err == nil && !fresh.Empty() {
+				r = fresh
+			}
+		}
+		return r.Center(), nil
+	}
+	if x == nil || y == nil {
+		return geom.Point{}, fmt.Errorf("give x and y (pixels of the last screenshot) or an element id from find")
+	}
+	v := s.currentView()
+	return v.ToScreen(v.ClampImage(geom.Point{X: *x, Y: *y})), nil
+}
+
+func parseModifiers(names []string) ([]uint16, error) {
+	var out []uint16
+	for _, n := range names {
+		vk, ok := input.ModifierVK(n)
+		if !ok {
+			return nil, fmt.Errorf("unknown modifier %q (ctrl, alt, shift, win)", n)
+		}
+		out = append(out, vk)
+	}
+	return out, nil
 }

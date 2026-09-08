@@ -72,6 +72,18 @@ func New(d Deps, cfg config.Config, logger *log.Logger) *Session {
 func (s *Session) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "screenshot", Description: "Capture the screen. Default: the active monitor (the one with the foreground window). All x,y you pass to other tools are pixels of the LAST screenshot; a region screenshot zooms in and switches the coordinate space to that region until the next screenshot. Returns the image plus JSON metadata (monitor, image size, cursor, foreground window)."}, s.toolScreenshot)
 	mcp.AddTool(srv, &mcp.Tool{Name: "monitors", Description: "List monitors with ids, physical pixel rects, DPI scale, and which one holds the cursor and the foreground window."}, s.toolMonitors)
+	mcp.AddTool(srv, &mcp.Tool{Name: "click", Description: "Click at x,y (pixels of the last screenshot) or on an element id from find. Supports right/middle button, double/triple click and held modifiers. Returns a screenshot after the click by default."}, s.toolClick)
+	mcp.AddTool(srv, &mcp.Tool{Name: "move", Description: "Move the mouse (hover) to x,y of the last screenshot or to an element. No screenshot by default."}, s.toolMove)
+	mcp.AddTool(srv, &mcp.Tool{Name: "drag", Description: "Press at from, move smoothly, release at to (drag-and-drop, selections, sliders, window moves). Coordinates are pixels of the last screenshot or element ids."}, s.toolDrag)
+	mcp.AddTool(srv, &mcp.Tool{Name: "scroll", Description: "Scroll the mouse wheel at an optional x,y. dy>0 scrolls down, dx>0 scrolls right, in ticks."}, s.toolScroll)
+	mcp.AddTool(srv, &mcp.Tool{Name: "type", Description: "Type text into the focused control (Unicode, any language). Long texts are pasted via the clipboard. Newlines press Enter."}, s.toolType)
+	mcp.AddTool(srv, &mcp.Tool{Name: "key", Description: "Press one chord (key: \"ctrl+s\") or a sequence (keys: [\"win+r\",\"enter\"]). Names: ctrl, alt, shift, win, enter, esc, tab, space, backspace, delete, home, end, pageup, pagedown, arrows, f1-f24, letters, digits."}, s.toolKey)
+	mcp.AddTool(srv, &mcp.Tool{Name: "clipboard", Description: "Read (get) or write (set) the text clipboard."}, s.toolClipboard)
+	mcp.AddTool(srv, &mcp.Tool{Name: "windows", Description: "List open top-level windows: id, title, process, rect (screen px), monitor, state, is_foreground. Optional regexp filter."}, s.toolWindows)
+	mcp.AddTool(srv, &mcp.Tool{Name: "window", Description: "Act on a window: focus, minimize, maximize, restore, close, move, resize. Target by id, \"foreground\", or a regexp on title/process. Use this to switch apps instead of clicking the taskbar."}, s.toolWindow)
+	mcp.AddTool(srv, &mcp.Tool{Name: "wait", Description: "Wait for something instead of polling with screenshots: ms (sleep), window (regexp appears), or stable (screen stops changing). Returns a screenshot when done; ok:false with timeout:true if it did not happen."}, s.toolWait)
+	mcp.AddTool(srv, &mcp.Tool{Name: "batch", Description: "Run several actions in one call when you are confident of the sequence (e.g. click a field, type, press Enter). Steps run without screenshots; one screenshot is returned at the end. Stops at the first failure."}, s.toolBatch)
+	mcp.AddTool(srv, &mcp.Tool{Name: "control", Description: "Session control: status (are you controlling / did the user pause), acquire (show the take-over overlay now), release (hide it when the task is done), hud (set the task title the user sees)."}, s.toolControl)
 }
 
 func Run(ctx context.Context, d Deps, cfg config.Config, logger *log.Logger) error {

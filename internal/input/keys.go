@@ -99,6 +99,12 @@ func init() {
 	}
 }
 
+// ModifierVK maps a modifier name ("ctrl", "control", "alt", "shift", "win", "cmd"...) to its VK.
+func ModifierVK(name string) (uint16, bool) {
+	vk, ok := modifierNames[strings.ToLower(strings.TrimSpace(name))]
+	return vk, ok
+}
+
 // ParseChord parses "ctrl+shift+t", "Enter", "win+r". Case-insensitive; spaces around '+' allowed.
 func ParseChord(s string) (Chord, error) {
 	s = strings.TrimSpace(strings.ToLower(s))

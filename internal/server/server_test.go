@@ -140,11 +140,57 @@ func TestInputSchemasMarkOnlyRequiredFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// allowedRequired lists the only fields each tool's schema may mark required
+	// (the go-sdk infers "required" from struct tags: a field without `omitempty`,
+	// or a non-pointer struct field, is required).
+	allowedRequired := map[string]map[string]bool{
+		"screenshot": {},
+		"monitors":   {},
+		"click":      {},
+		"move":       {},
+		"drag":       {"from": true, "to": true},
+		"scroll":     {},
+		"type":       {"text": true},
+		"key":        {},
+		"clipboard":  {"action": true},
+		"windows":    {},
+		"window":     {"action": true},
+		"wait":       {},
+		"batch":      {"actions": true},
+		"control":    {"action": true},
+	}
+	if len(tools.Tools) != len(allowedRequired) {
+		t.Fatalf("got %d tools, want %d: %v", len(tools.Tools), len(allowedRequired), tools.Tools)
+	}
 	for _, tool := range tools.Tools {
-		if tool.Name == "screenshot" {
-			b, _ := json.Marshal(tool.InputSchema)
-			if bytes.Contains(b, []byte(`"required"`)) {
-				t.Fatalf("screenshot schema must have no required fields: %s", b)
+		allowed, known := allowedRequired[tool.Name]
+		if !known {
+			t.Fatalf("unexpected tool %q; add it to allowedRequired", tool.Name)
+		}
+		b, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("%s: marshal schema: %v", tool.Name, err)
+		}
+		var schema struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(b, &schema); err != nil {
+			t.Fatalf("%s: unmarshal schema: %v", tool.Name, err)
+		}
+		for _, f := range schema.Required {
+			if !allowed[f] {
+				t.Fatalf("%s: field %q must not be required (schema: %s)", tool.Name, f, b)
+			}
+		}
+		for f := range allowed {
+			found := false
+			for _, r := range schema.Required {
+				if r == f {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("%s: field %q must be required (schema: %s)", tool.Name, f, b)
 			}
 		}
 	}
