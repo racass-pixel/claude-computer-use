@@ -3,6 +3,14 @@
 Machine: Windows 11 Home (10.0.26200), 2560x1600 @150% DPI, single monitor.
 Model: claude-sonnet-5 (via `claude -p` with `--dangerously-skip-permissions`).
 
+All automated runs used the following base command from a scratch directory outside the repo:
+
+```
+claude -p "<task>" --plugin-dir C:\Users\test\Desktop\claude-computer-use --model sonnet --dangerously-skip-permissions --max-turns 60 --output-format json
+```
+
+The JSON result provides `num_turns`, `duration_ms`, `total_cost_usd`, and `result` text.
+
 ## Results Table
 
 | Task | Description | Target Turns | Actual Turns | Duration (s) | Success | Notes |
@@ -18,16 +26,33 @@ Model: claude-sonnet-5 (via `claude -p` with `--dangerously-skip-permissions`).
 | 9 | Settings: display scale via `find` | ≤5 | 4 | 95.9 | Yes | Reported 150% (recommended). Used UIA `find`. Under target. |
 | 10 | Notepad: click small close tab button | ≤4 | 9 | 36.3 | Partial | Closed the tab but took 9 turns (target 4). Re-run after tuning: improved from 13→9 but still over. Small tab close button is hard to locate via `find` or vision. |
 
-**Summary: 6/8 runnable tasks succeeded. 3/8 within turn target (tasks 5, 6, 9). 5/8 over target (tasks 1-4, 10).**
+**Summary: 7/8 runnable tasks succeeded, 1/8 partial (task 10 — completed but far over turn target). Within turn target: 3/8 (tasks 5, 6, 9). Over target: 5/8 (tasks 1-4, 10).**
 
-## Recipe Speed Comparison (Task 1)
+## Repeat-run comparison (recipe system NOT exercised)
+
+The second run of task 1 did **not** exercise the recipe system. The model bypassed the desktop tools entirely and used Claude Code's native file-write capability. The numbers below measure model-level task-routing optimization, not recipe replay.
 
 | Run | Turns | Duration (s) | Mechanism |
 |-----|:-----:|:------------:|-----------|
 | Run 1 (first time) | 7 | 117.7 | Operator: Win+R → notepad → type → Ctrl+S → save dialog |
 | Run 2 (repeat) | 2 | 6.6 | Bypassed GUI — used Claude Code's file write tool directly |
 
-**Speedup: 17.8x faster (117.7s → 6.6s), 7→2 turns.** On the second run, the model recognized it could write the file directly without GUI automation. This is a valid optimization path — the model learned the task could be done without the desktop tools. The existing Notepad recipe in the recipe store did not match (it was for opening Notepad without saving), so the recipe system was not the mechanism; the speedup came from model-level task routing.
+**Repeat speedup: 17.8x faster (117.7s → 6.6s), 7→2 turns.** The existing Notepad recipe in the recipe store (`otkr-t-bloknot-i-napechatat-tekst-bez-sokhraneniya.json`) did not match the task prompt (it covers opening Notepad without saving), so the recipe system was not invoked. The speedup came from the model recognising on the second run that it could accomplish the goal without GUI automation.
+
+### Recipe replay measurement — pending
+
+Evidence that recipe replay works exists from earlier development (Task 20): the saved Notepad recipe's `runs` counter incremented from 0 to 1 on its second invocation, confirming the `recipe{action:"run"}` path executes and replays stored steps.
+
+To measure recipe replay speedup quantitatively, the controller will run the following task twice:
+
+```
+claude -p "Открой Блокнот через Win+R, напиши слово рецепт, закрой без сохранения" --plugin-dir C:\Users\test\Desktop\claude-computer-use --model sonnet --dangerously-skip-permissions --max-turns 60 --output-format json
+```
+
+- **Run 1** creates the recipe (the task matches no existing recipe and has ≥4 actions).
+- **Run 2** should replay the recipe via `recipe{action:"run"}`.
+- Compare `num_turns` and `duration_ms` between runs.
+- Confirm replay by checking the recipe file's `runs` counter in `%APPDATA%\claude-computer-use\recipes\`.
 
 ## Tuning Changes
 
@@ -36,7 +61,7 @@ Model: claude-sonnet-5 (via `claude -p` with `--dangerously-skip-permissions`).
 **Problem:** Task 10 (click small close tab button) took 13 turns on first run. The operator struggled to precisely locate and click Notepad's small tab close button using vision alone.
 
 **Fix:** Expanded the "Small targets" guidance in the Coordinates section:
-- Added explicit examples of using `find` with name/type filters for close buttons (`find{name:"Close", type:"Button"}`)
+- Added explicit examples of using `find` with query/role filters for close buttons (`find{query:"^Close$", role:"Button"}`)
 - Recommended `find` as the first strategy before falling back to `screenshot{region}` zoom
 - Changed `click{element:"e2"}` to `click{element:"eN"}` to avoid implying a fixed element ID
 
@@ -56,10 +81,7 @@ Model: claude-sonnet-5 (via `claude -p` with `--dangerously-skip-permissions`).
 
 ## Manual Items Left for the User
 
-1. **Task 7 (second monitor):** "Move Calculator to second monitor and maximize" — requires a multi-monitor setup. Connect a second display and run:
-   ```
-   claude -p "Перенеси окно Калькулятора на второй монитор и разверни" --plugin-dir <path> --model sonnet --dangerously-skip-permissions --max-turns 60 --output-format json
-   ```
+1. **Task 7 (second monitor):** "Move Calculator to second monitor and maximize" — requires a multi-monitor setup. Connect a second display and run the base command above with the task prompt.
 
 2. **Task 8 (Esc-Esc interruption):** Start the form-fill task, move the mouse mid-way to trigger pause, verify the operator stops within one action and reports. Then type "продолжай" to resume. Requires real-time human interaction.
 

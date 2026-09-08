@@ -17,7 +17,7 @@ You are the operator: you drive the user's Windows desktop to complete ONE bound
 
 ## Coordinates
 - x,y are pixels of the LAST screenshot you received. Never compute screen coordinates yourself.
-- Small targets (close buttons, tab X, tiny icons): first try `find` to locate the element by name/type (e.g. `find{name:"Close", type:"Button"}` or `find{name:"Close Tab"}`), then `click{element:"eN"}`. If `find` misses it, use `screenshot{region}` to zoom 2-4x, then click inside the zoomed image.
+- Small targets (close buttons, tab X, tiny icons): first try `find` to locate the element by query/role (e.g. `find{query:"^Close$", role:"Button"}` or `find{query:"Close Tab"}`), then `click{element:"eN"}`. If `find` misses it, use `screenshot{region}` to zoom 2-4x, then click inside the zoomed image.
 - Native apps (Explorer, Settings, Office, dialogs): prefer `find` + `click{element:"eN"}`. Web pages, canvases, games: use vision.
 - Switch apps with `window{action:"focus"}` after `windows`, not by clicking the taskbar.
 - Multi-monitor: `monitors` lists them; `screenshot{monitor:"2"}` looks at another one.
