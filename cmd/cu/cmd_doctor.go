@@ -54,13 +54,19 @@ func runDoctor(args []string) error {
 		fmt.Printf("cursor: %d,%d\n", p.X, p.Y)
 	}
 
-	// Capture benchmark: 3x screen.Grab of monitor 1, print min ms.
+	// Capture benchmark: 3x screen.Grab of monitor 1 through the real screenshot
+	// path (auto-scale to screenshot_long_edge, configured format/quality), print min ms.
 	if len(mons) > 0 {
 		s := &screen.Screen{}
+		longEdge, format, quality := 1366, "jpeg", 90
+		if cfgErr == nil {
+			longEdge, format, quality = cfg.ScreenshotLongEdge, cfg.ScreenshotFormat, cfg.JPEGQuality
+		}
+		scale := screen.AutoScale(mons[0].Rect, longEdge)
 		var minMs int64 = 1<<63 - 1
 		for i := 0; i < 3; i++ {
 			t0 := time.Now()
-			_, grabErr := screen.Grab(s, mons[0].Rect, 1.0, "png", 85)
+			_, grabErr := screen.Grab(s, mons[0].Rect, scale, format, quality)
 			ms := time.Since(t0).Milliseconds()
 			if grabErr != nil {
 				fmt.Printf("capture benchmark: FAIL %v\n", grabErr)
@@ -71,7 +77,7 @@ func runDoctor(args []string) error {
 			}
 		}
 		if minMs < 1<<62 {
-			fmt.Printf("capture benchmark: %d ms (best of 3, monitor 1)\n", minMs)
+			fmt.Printf("capture benchmark: %d ms (best of 3, monitor 1, %s, scale %.2f)\n", minMs, format, scale)
 		}
 	}
 

@@ -18,6 +18,8 @@ type fakeController struct {
 	state    string // "idle", "controlling", "paused"
 	userHold bool
 	resumed  chan struct{} // closed on Resume
+	onStatus func(n int)   // optional: called (under the lock) on every Status() with the call count
+	statusN  int
 }
 
 func newFakeController(state string) *fakeController {
@@ -68,6 +70,10 @@ func (c *fakeController) WaitResume(ctx context.Context) bool {
 func (c *fakeController) Status() ControllerStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.statusN++
+	if c.onStatus != nil {
+		c.onStatus(c.statusN)
+	}
 	return ControllerStatus{State: c.state, Hotkey: "Esc Esc", UserHold: c.userHold}
 }
 
@@ -149,19 +155,18 @@ func TestBatchAbortsOnUserTookControl(t *testing.T) {
 
 	off := false
 	soe := false // stop_on_error = false
-	// First action succeeds, then we set the latch before second action.
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		ctrl.mu.Lock()
-		ctrl.state = "idle"
-		ctrl.userHold = true
-		ctrl.mu.Unlock()
-	}()
+	// The first action succeeds; the user takes control (latch) before the
+	// second step's begin() checks the controller. Deterministic: no timers.
+	ctrl.onStatus = func(n int) {
+		if n == 2 {
+			ctrl.state = "idle"
+			ctrl.userHold = true
+		}
+	}
 
 	res, _, _ := h.s.toolBatch(context.Background(), nil, BatchIn{
 		Actions: []BatchAction{
 			{Tool: "type", Args: map[string]any{"text": "a"}},
-			{Tool: "wait", Args: map[string]any{"ms": 200}},
 			{Tool: "type", Args: map[string]any{"text": "b"}},
 			{Tool: "type", Args: map[string]any{"text": "c"}},
 		},

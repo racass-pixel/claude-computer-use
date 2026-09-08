@@ -343,10 +343,14 @@ func TestDragHoldTimeout(t *testing.T) {
 	h.in.Calls = nil
 	// Any begin() call should auto-release.
 	mx, my := 100, 100
-	h.s.toolMove(context.Background(), nil, MoveIn{X: &mx, Y: &my, Screenshot: &off})
+	res, _, _ := h.s.toolMove(context.Background(), nil, MoveIn{X: &mx, Y: &my, Screenshot: &off})
 	got := strings.Join(h.in.Calls, "|")
 	if !strings.Contains(got, "up left") {
 		t.Fatalf("timeout must release held button, got %q", got)
+	}
+	fields, _ := decode(t, res)
+	if fields["auto_released"] != true || fields["released_button"] != "left" {
+		t.Fatalf("result must carry auto_released:true and released_button:left, got %v", fields)
 	}
 	btn, _ := h.s.heldInfo()
 	if btn != "" {
