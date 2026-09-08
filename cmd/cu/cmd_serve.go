@@ -33,6 +33,9 @@ import (
 )
 
 func runServe(args []string) error {
+	if err := win.CheckRequiredProcs(); err != nil {
+		return err
+	}
 	if err := win.SetPerMonitorDPIAwareV2(); err != nil {
 		return err
 	}
@@ -97,6 +100,20 @@ func runServe(args []string) error {
 			return oerr
 		}
 		ov = o
+		// C3: wire capture-exclusion fallback — hide the overlay during each
+		// screenshot when the OS cannot exclude it natively.  The flag is
+		// checked at call time because CaptureExclusionSupported flips only
+		// when the first overlay window is lazily created.
+		screen.BeforeCapture = func() {
+			if !win.CaptureExclusionSupported {
+				ui.DoSync(o.HideForCapture)
+			}
+		}
+		screen.AfterCapture = func() {
+			if !win.CaptureExclusionSupported {
+				ui.DoSync(o.ShowAfterCapture)
+			}
+		}
 	}
 	defer ov.Close()
 

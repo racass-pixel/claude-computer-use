@@ -216,6 +216,27 @@ func SetWindowRect(hwnd uintptr, x, y, w, h int) error {
 	return callErr("SetWindowPos", r, e)
 }
 
+// RawWindowInfo returns window info for a single HWND without enumerating all windows.
+// Returns ok=false if the HWND is not a visible, titled window.
+func RawWindowInfo(hwnd uintptr) (RawWindow, bool) {
+	if v, _, _ := procIsWindowVisible.Call(hwnd); v == 0 {
+		return RawWindow{}, false
+	}
+	title := windowText(hwnd)
+	if title == "" {
+		return RawWindow{}, false
+	}
+	var pid uint32
+	tid, _, _ := procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	rect, _ := WindowFrameRect(hwnd)
+	iconic, _, _ := procIsIconic.Call(hwnd)
+	zoomed, _, _ := procIsZoomed.Call(hwnd)
+	return RawWindow{
+		HWND: hwnd, Title: title, Class: className(hwnd), PID: pid, TID: uint32(tid),
+		Rect: rect, Minimized: iconic != 0, Maximized: zoomed != 0,
+	}, true
+}
+
 func CloseWindow(hwnd uintptr) error {
 	r, _, e := procPostMessageW.Call(hwnd, wmClose, 0, 0)
 	return callErr("PostMessage(WM_CLOSE)", r, e)

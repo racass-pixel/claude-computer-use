@@ -3,8 +3,11 @@
 package win
 
 import (
+	"fmt"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -23,6 +26,21 @@ func SetPerMonitorDPIAwareV2() error {
 			return nil // already set for this process
 		}
 		return callErr("SetProcessDpiAwarenessContext", r, e)
+	}
+	return nil
+}
+
+// CheckRequiredProcs verifies that the Win32 APIs cu needs are available.
+// Returns a clear error naming the missing proc if any is absent.
+func CheckRequiredProcs() error {
+	for _, p := range []*windows.LazyProc{
+		procSetProcessDpiAwarenessContext,
+		procSetWindowDisplayAffinity,
+		procUpdateLayeredWindow,
+	} {
+		if err := p.Find(); err != nil {
+			return fmt.Errorf("%s is not available: %w — Windows 10 2004 or newer is required", p.Name, err)
+		}
 	}
 	return nil
 }

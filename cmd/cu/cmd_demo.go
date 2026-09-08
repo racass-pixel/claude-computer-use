@@ -81,7 +81,11 @@ func runDemo(args []string) error {
 		"click_until|deny ×12",
 	}
 
-	ov.SetTitle("Заполняю форму заказа")
+	demoTitle := "Demo: Claude is controlling the computer"
+	if lang == "ru" {
+		demoTitle = "Демо: Claude управляет компьютером"
+	}
+	ov.SetTitle(demoTitle)
 	ov.Show(m, platform.OverlayControlling)
 
 	screenshotTaken := false

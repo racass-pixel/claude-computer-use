@@ -29,6 +29,12 @@ func runDoctor(args []string) error {
 		fmt.Printf("auto_pause: %v\n", cfg.AutoPause)
 	}
 
+	if err := win.CheckRequiredProcs(); err != nil {
+		fmt.Println("required procs: FAIL", err)
+	} else {
+		fmt.Println("required procs: OK")
+	}
+
 	if err := win.SetPerMonitorDPIAwareV2(); err != nil {
 		fmt.Println("dpi awareness: FAIL", err)
 	} else {

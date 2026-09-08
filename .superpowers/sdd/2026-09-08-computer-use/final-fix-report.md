@@ -87,6 +87,49 @@ claude plugin validate .     → passed
 ## Concerns
 
 - **C3** (capture-exclusion wiring) and **I4** (hook thread channel) are PARTIAL — documented above. Both require deeper windows-only plumbing that is not safety-critical.
-- **I9** (`Foreground` enumeration) is PARTIAL — performance is acceptable, optimization would change the platform interface.
 - **I10** UIA race fix (Close/run) is not addressed beyond the panic-recover wrapper.
 - **Demo GIF** not re-recorded (time constraint; README note about previous HUD already exists).
+
+---
+
+## Round 2
+
+Addresses C3 (wire capture-exclusion fallback), I4 (hook event pump), I9 (single-HWND foreground), M4 (demo title by lang), M5 (CI gates).
+
+| ID | Status | Notes |
+|----|--------|-------|
+| C3 | DONE | `screen.BeforeCapture`/`AfterCapture` wired in `cmd_serve.go` with `win.CaptureExclusionSupported` checked at call time. `ShowAfterCapture` calls `frame()` which re-renders strips and HUD; the animation ticker keeps running (never stopped by `HideForCapture`), so no restart needed. `win.CheckRequiredProcs()` added: checks `SetProcessDpiAwarenessContext`, `SetWindowDisplayAffinity`, `UpdateLayeredWindow` via `proc.Find()`, returns clear error naming the missing proc + "Windows 10 2004 or newer is required". Called at start of `serve` and in `doctor`. Test: `TestCheckRequiredProcsReturnsNilOnWindows10Plus`. |
+| I4 | DONE | `internal/guard/pump.go`: `pump` struct with buffered channel (4096), `push` (non-blocking, drops on full, increments `dropped` counter), `drain` (reads events, calls handler). `runner_windows.go` updated: hook callback only calls `p.push(ev)` (fast); drain goroutine calls `m.HandleEvent` (and therefore `onChange`) off the hook thread. `ev.At = time.Now()` stays in the hook callback for TapMatcher timing. `onChange` runs on the drain goroutine, same situation as `control acquire` calling `ov.Show` from an MCP handler goroutine (both marshal to the UI thread via `o.t.Do`). Cross-platform tests: `TestPumpDrainsInOrder` (N events in order), `TestPumpDropsOnFull` (no block, dropped counter). |
+| I9 | DONE | `win.RawWindowInfo(hwnd)` extracts per-HWND info (title, PID, rect, state) without EnumWindows. `(*Windows).Foreground()` uses `win.ForegroundWindow()` + `RawWindowInfo` instead of `List()`. Benchmark (100 calls): new = 6 ms, old = 66 ms (~11x faster). `activeMon()` in `cmd_serve.go` already calls `Foreground()`, so the guard `onChange` path is now fast. |
+| M4 | DONE | `cu demo` title: "Demo: Claude is controlling the computer" (en), "Демо: Claude управляет компьютером" (ru), using the same `lang` resolution as serve. |
+| M5 | DONE | `.github/workflows/ci.yml`: added gofmt check step (pwsh, fails if non-empty) and `GOOS=linux go build ./...` step before `go vet`. |
+
+### Tests added (Round 2)
+- `TestPumpDrainsInOrder` — pump drains N events in order
+- `TestPumpDropsOnFull` — pump drops on full channel, no block, counter increments
+- `TestCheckRequiredProcsReturnsNilOnWindows10Plus` — CheckRequiredProcs returns nil
+- `TestForegroundBenchmark` — I9 benchmark (skipped unless CU_BENCH=1)
+
+### Gate (Round 2)
+```
+gofmt -l .           → (empty)
+go build ./...       → OK
+go vet -unsafeptr=false ./... → OK
+GOOS=linux go build ./...    → OK
+go test ./... -count=1       → all 13 packages OK
+claude plugin validate .     → passed
+```
+
+### Files changed (Round 2)
+- `cmd/cu/cmd_serve.go` — C3 wiring, CheckRequiredProcs call
+- `cmd/cu/cmd_doctor.go` — CheckRequiredProcs call
+- `cmd/cu/cmd_demo.go` — M4 title by lang
+- `internal/win/dpi.go` — CheckRequiredProcs
+- `internal/win/dpi_test.go` — (new)
+- `internal/win/window.go` — RawWindowInfo helper
+- `internal/window/window_windows.go` — single-HWND Foreground
+- `internal/window/bench_test.go` — (new) I9 benchmark
+- `internal/guard/pump.go` — (new) event pump
+- `internal/guard/pump_test.go` — (new) pump tests
+- `internal/guard/runner_windows.go` — use pump
+- `.github/workflows/ci.yml` — M5 gofmt + linux build steps

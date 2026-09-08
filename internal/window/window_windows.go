@@ -3,6 +3,7 @@
 package window
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
@@ -44,12 +45,19 @@ func (*Windows) List() ([]platform.WindowInfo, error) {
 	return out, nil
 }
 
-func (ws *Windows) Foreground() (platform.WindowInfo, error) {
-	list, err := ws.List()
-	if err != nil {
-		return platform.WindowInfo{}, err
+// Foreground returns the foreground window without enumerating all windows (I9).
+func (*Windows) Foreground() (platform.WindowInfo, error) {
+	hwnd := win.ForegroundWindow()
+	if hwnd == 0 {
+		return platform.WindowInfo{}, fmt.Errorf("no foreground window")
 	}
-	return Match(list, "foreground")
+	raw, ok := win.RawWindowInfo(hwnd)
+	if !ok {
+		// Fallback: the foreground HWND may be a tool window or untitled.
+		// Return a minimal info with what we can get.
+		return platform.WindowInfo{ID: hwnd, Foreground: true}, nil
+	}
+	return toInfo(raw, hwnd), nil
 }
 
 func (*Windows) Focus(id uintptr) error { return win.FocusWindow(id) }
