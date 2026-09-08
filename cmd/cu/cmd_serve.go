@@ -83,6 +83,9 @@ func runServe(args []string) error {
 	if lang == "auto" {
 		lang = win.UserUILanguage()
 	}
+	if os.Getenv("CU_OVERLAY_VISIBLE_IN_CAPTURE") == "1" {
+		win.OverlayVisibleInCapture = true
+	}
 	var ov platform.Overlay = platform.NopOverlay{}
 	if cfg.Overlay {
 		o, oerr := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: hotkey.String(), Thick: cfg.BorderThickness, Intensity: cfg.BorderIntensity})

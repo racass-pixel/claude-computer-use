@@ -215,6 +215,12 @@ git push --tags
 
 The GitHub Actions workflow builds and publishes a release with GoReleaser.
 
+### Recording demos
+
+Set `CU_OVERLAY_VISIBLE_IN_CAPTURE=1` to make the overlay appear in screen
+recordings (by default it is excluded via `SetWindowDisplayAffinity`). For
+recording demos only — do not leave enabled in normal use.
+
 ### Developer caveat
 
 Starting Claude Code with its working directory inside this repository also loads `.mcp.json` as a project-level server named `desktop` where `${CLAUDE_PLUGIN_ROOT}` is not expanded. That duplicate server fails with CONNECTION_CLOSED — ignore it or run Claude Code from another directory. The plugin's own server is `plugin-computer-use-desktop`.
