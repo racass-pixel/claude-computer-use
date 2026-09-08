@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Microsoft/go-winio"
 )
@@ -40,6 +41,10 @@ func Serve(ctx context.Context, pid uint32, h Handler) error {
 
 func serveConn(conn net.Conn, h Handler) {
 	defer conn.Close()
+	// Guard against a client that connects and never sends a newline: without
+	// this, a slow/misbehaving client would hang this goroutine forever, since
+	// cancelling ctx only closes the listener, not accepted connections.
+	conn.SetDeadline(time.Now().Add(3 * time.Second))
 	line, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil && line == "" {
 		return

@@ -12,15 +12,13 @@ import (
 
 // runCtl never returns an error in --quiet mode: hooks must not fail Claude Code when no server runs.
 func runCtl(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: cu ctl status|resume|release|pause [--quiet]")
-	}
-	cmd := args[0]
-	quiet := len(args) > 1 && args[1] == "--quiet"
-	switch cmd {
-	case "status", "resume", "release", "pause":
-	default:
-		return fmt.Errorf("unknown ctl command %q", cmd)
+	cmd, quiet, perr := parseCtlArgs(args)
+	if perr != nil {
+		if quiet {
+			fmt.Fprintln(os.Stderr, perr)
+			return nil
+		}
+		return perr
 	}
 	replies := ipc.Broadcast(cmd, 2*time.Second)
 	if quiet {
