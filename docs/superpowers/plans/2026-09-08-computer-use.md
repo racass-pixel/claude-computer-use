@@ -9089,3 +9089,51 @@ Server tool `recipe`: `RecipeIn{Action string (search|get|save|run|delete|trace|
 - [ ] **Step 5: Commit** `feat: recipes — procedural memory with trace, search and replay`.
 
 Execution order ruling: Task 19 → Task 20 → Task 17 (docs/release, now also documenting recipes, glide, Esc-only) → Task 18 (eval; add "recipe replay speedup" and "glide feels natural" to the checklist).
+
+---
+
+### Task 21: Queue-grinding speed — `click_until`, `pixel`, `screenshot_region` on actions, queue-pattern guidance
+
+User feedback from the Roblox live test (2026-09-08): the operator processed one list item per model turn (36 clicks in ~5 min, 1 accept / 44 denies) — "by hand I am 1000× faster". Observed: every click returned a full 1366×854 screenshot (~1500 tokens) although only the applicant list mattered; each new applicant needed a look, but the decision depends on ONE visual cue (five filled stars); lists re-flow after each action so all visible rows can be decided in one look.
+
+**Files:**
+- Modify: `internal/server/session.go` (`finish` takes a `shotSpec{Want bool; Region *RegionIn}`; all callers updated), `internal/server/tools_mouse.go` (`ScreenshotRegion` on Click/Move/Drag/Scroll inputs; new `toolPixel`, `toolClickUntil`), `tools_keyboard.go`/`tools_window.go`/`tools_wait.go` (`ScreenshotRegion` on type/key/window/wait), `tools_batch.go` (`BatchIn.ScreenshotRegion`; `click_until` and `pixel` batchable), `tools_recipe.go` (no change needed beyond batchable set), `server.go` (register `pixel`, `click_until`), `tools_test.go` (+ tests), `agents/operator.md`, `skills/computer-use/SKILL.md`, `README.md`/`README.ru.md` (tools table +2 rows, one paragraph on grinding lists), `CHANGELOG.md`.
+
+**Interfaces:**
+```go
+// every action tool input gains:
+ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+
+type shotSpec struct{ Want bool; Region *RegionIn }
+func (s *Session) finish(action string, t0 time.Time, extra map[string]any, shot shotSpec, settle time.Duration) *mcp.CallToolResult
+// shot.Region != nil → capture(captureSpec{region: shot.Region}) (region is interpreted in the view that was current when the tool was CALLED — resolve it to a screen rect at the start of the handler, before any capture changes the view)
+
+type PixelIn struct {
+	X *int `json:"x,omitempty"`; Y *int `json:"y,omitempty"`               // one point (last-screenshot pixels)
+	Points []PointIn `json:"points,omitempty"`                              // or several
+}
+// result: {"ok":true,"pixels":[{"x":..,"y":..,"screen":[X,Y],"color":"#RRGGBB","rgb":[r,g,b]}]}
+
+type ClickUntilIn struct {
+	X *int; Y *int (required unless Element) ; Element string; Button string
+	Probe PointIn `json:"probe" jsonschema:"pixel to watch (last-screenshot coordinates)"`
+	Color string  `json:"color" jsonschema:"#RRGGBB the probe is compared with"`
+	Tolerance int `json:"tolerance,omitempty" jsonschema:"max per-channel difference to count as a match (default 40)"`
+	Stop string   `json:"stop,omitempty" jsonschema:"match (default): stop when the probe matches the color; mismatch: stop when it stops matching"`
+	Max int       `json:"max,omitempty" jsonschema:"max clicks (default 30, cap 500)"`
+	IntervalMs int `json:"interval_ms,omitempty" jsonschema:"pause after each click for the UI to update (default 300, min 50)"`
+	ScreenshotRegion *RegionIn; Screenshot *bool
+}
+// Algorithm: resolve click point + probe to screen coords once (current view); begin(); MoveTo(click point) once;
+// for i := 0; i < Max; i++ { if controller paused → stop "paused"; c := probe color (win.CaptureRect(px,py,1,1) via Screen.Capture of a 1×1 rect);
+//   if matches(c) == (Stop=="match") → stop "match"; MouseDown/Up at the point (no glide, no settle); sleep Interval }
+// stop "max" when exhausted. Result: {"ok":true,"clicks":n,"stopped_by":"match|max|paused","probe":[x,y],"color_final":"#..","ms":..} + screenshot (region if given).
+// ok:false when stopped_by == "paused" (and the usual user_took_control semantics apply if still paused at the end).
+```
+Tool descriptions (verbatim intent): `pixel` — "Read the color of one or more pixels (last-screenshot coordinates). Use it to learn the color of a visual cue (a filled star, a badge, a status dot) before click_until." `click_until` — "Grind through a list without screenshots: click a point repeatedly (e.g. Deny on the top row) until a probe pixel turns (or stops being) a color, e.g. until the 5th star of the top row is yellow. Runs server-side at interval_ms per click; returns the click count and why it stopped. Then handle the matching item yourself."
+
+- [ ] **Step 1: Tests first** (`tools_test.go`): (a) `click` with `screenshot_region` returns an image whose meta `image` equals the region size×zoom and the view switches to the region; (b) `pixel` on the fake screen (Fill red) returns `#0A141E`-style hex from the fake fill and correct screen coords; (c) `click_until` with `fake.Screen.Frames` = [red, red, yellow] (each a 4-byte 1×1 RGBA frame) and `color:"#FFFF00"` → 2 clicks, `stopped_by:"match"`, fake input calls `move`,`down`,`up`,`down`,`up`; (d) `Max: 3` with frames never matching → 3 clicks, `stopped_by:"max"`; (e) batch step `{"tool":"click_until",...}` works; schema test: `probe` and `color` are the only required fields of `click_until`.
+- [ ] **Step 2: Implement** per the Interfaces; keep `finish` callers consistent (grep `s.finish(`); `pixel` and `click_until` added to `batchable()`; register both tools; `IntervalMs` floor 50, `Max` cap 500; use `s.d.Screen.Capture(geom.Rect{X:px,Y:py,W:1,H:1})` for the probe; the click uses `s.actor.In.MouseDown/MouseUp` after one `s.actor.MoveTo`.
+- [ ] **Step 3: Guidance** — `agents/operator.md` new section "Grinding lists and queues": look once with `screenshot{region}` → decide for every visible row → one `batch` of clicks at the FIRST row's buttons (lists re-flow upward: after Deny the next row takes its place) → look again; when the decision is a single visual cue, calibrate with `pixel` (e.g. the 5 star centers of the top row) and then `click_until` (e.g. click Deny until the 5th star is yellow, `max` 60, `interval_ms` 300) and only then act on the match; always pass `screenshot_region` to keep the zoom on the part you work in. Add one sentence to the skill's cost section pointing to `click_until` for repetitive lists. README/README.ru: two table rows + a short "Grinding repetitive lists" paragraph; CHANGELOG line.
+- [ ] **Step 4: Verify** unit tests; stdio smoke: `pixel {"x":10,"y":10}` returns a color; `click_until` against the desktop is NOT run blindly (it clicks) — test it on a Notepad tab: `click_until` with a probe that already matches → 0 clicks, `stopped_by:"match"`. `claude plugin validate .` passes.
+- [ ] **Step 5: Commit** `feat: click_until and pixel tools, screenshot_region on actions, queue-grinding guidance`.
