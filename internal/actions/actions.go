@@ -25,9 +25,13 @@ func (a *Actor) sleep(d time.Duration) {
 	}
 }
 
+// holdMods presses mods in order. If one fails partway, it releases (best-effort,
+// ignoring errors) whatever it already pressed before returning the error, so a
+// failed chord never leaves a modifier stuck down.
 func (a *Actor) holdMods(mods []uint16) error {
-	for _, m := range mods {
+	for i, m := range mods {
 		if err := a.In.KeyDown(m); err != nil {
+			a.releaseMods(mods[:i])
 			return err
 		}
 	}
@@ -89,6 +93,12 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 	if err := a.In.MouseDown(btn); err != nil {
 		return err
 	}
+	released := false
+	defer func() {
+		if !released {
+			a.In.MouseUp(btn) // best-effort: don't leave the button stuck down on an error path
+		}
+	}()
 	a.sleep(80 * time.Millisecond) // Explorer and browsers start a drag only after the button is held
 	steps := max(8, int(dur/(12*time.Millisecond)))
 	for i := 1; i <= steps; i++ {
@@ -106,6 +116,7 @@ func (a *Actor) Drag(from, to geom.Point, btn platform.MouseButton, dur time.Dur
 		a.sleep(dur / time.Duration(steps))
 	}
 	a.sleep(80 * time.Millisecond) // let drop targets highlight before releasing
+	released = true
 	return a.In.MouseUp(btn)
 }
 
@@ -125,6 +136,7 @@ func (a *Actor) Chord(c input.Chord, hold time.Duration) error {
 	if err := a.holdMods(c.Mods); err != nil {
 		return err
 	}
+	defer a.releaseMods(c.Mods) // run on every path after mods are held, not just the happy one
 	if err := a.In.KeyDown(c.Key); err != nil {
 		return err
 	}
@@ -132,10 +144,7 @@ func (a *Actor) Chord(c input.Chord, hold time.Duration) error {
 		hold = 10 * time.Millisecond
 	}
 	a.sleep(hold)
-	if err := a.In.KeyUp(c.Key); err != nil {
-		return err
-	}
-	return a.releaseMods(c.Mods)
+	return a.In.KeyUp(c.Key)
 }
 
 // Type enters text. mode: auto (unicode, paste when long), unicode, paste, keys (per-char with delay).
@@ -176,14 +185,21 @@ func (a *Actor) typeUnicode(runes []rune, delay time.Duration) error {
 	return nil
 }
 
+// paste sets the clipboard, sends Ctrl+V, and restores the previous clipboard text.
+// If reading the previous text failed, it never restores (that would clobber the
+// user's clipboard with ""; better to leave the pasted text). The restore runs in a
+// defer so it also happens when the Ctrl+V chord itself fails.
 func (a *Actor) paste(text string) error {
-	old, _ := a.Clip.GetText()
+	old, err := a.Clip.GetText()
+	haveOld := err == nil
 	if err := a.Clip.SetText(text); err != nil {
 		return err
 	}
-	if err := a.Chord(input.Chord{Mods: []uint16{input.VK_CONTROL}, Key: input.VK_V}, 0); err != nil {
-		return err
+	if haveOld {
+		defer func() {
+			a.sleep(300 * time.Millisecond) // most apps read the clipboard synchronously on Ctrl+V; give slow ones time
+			a.Clip.SetText(old)
+		}()
 	}
-	a.sleep(300 * time.Millisecond) // most apps read the clipboard synchronously on Ctrl+V; give slow ones time
-	return a.Clip.SetText(old)
+	return a.Chord(input.Chord{Mods: []uint16{input.VK_CONTROL}, Key: input.VK_V}, 0)
 }
