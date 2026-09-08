@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
+	"github.com/racass-pixel/claude-computer-use/internal/config"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/uia"
@@ -18,6 +20,15 @@ import (
 
 func runDoctor(args []string) error {
 	fmt.Printf("cu %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		fmt.Printf("config: FAIL %v\n", cfgErr)
+	} else {
+		fmt.Printf("hotkey: %s\n", cfg.Hotkey)
+		fmt.Printf("auto_pause: %v\n", cfg.AutoPause)
+	}
+
 	if err := win.SetPerMonitorDPIAwareV2(); err != nil {
 		fmt.Println("dpi awareness: FAIL", err)
 	} else {
@@ -36,6 +47,49 @@ func runDoctor(args []string) error {
 	if p, err := win.GetCursorPos(); err == nil {
 		fmt.Printf("cursor: %d,%d\n", p.X, p.Y)
 	}
+
+	// Capture benchmark: 3x screen.Grab of monitor 1, print min ms.
+	if len(mons) > 0 {
+		s := &screen.Screen{}
+		var minMs int64 = 1<<63 - 1
+		for i := 0; i < 3; i++ {
+			t0 := time.Now()
+			_, grabErr := screen.Grab(s, mons[0].Rect, 1.0, "png", 85)
+			ms := time.Since(t0).Milliseconds()
+			if grabErr != nil {
+				fmt.Printf("capture benchmark: FAIL %v\n", grabErr)
+				break
+			}
+			if ms < minMs {
+				minMs = ms
+			}
+		}
+		if minMs < 1<<62 {
+			fmt.Printf("capture benchmark: %d ms (best of 3, monitor 1)\n", minMs)
+		}
+	}
+
+	// Overlay capture exclusion mode.
+	if win.CaptureExclusionSupported {
+		fmt.Println("overlay capture exclusion: native")
+	} else {
+		fmt.Println("overlay capture exclusion: hidden-during-capture")
+	}
+
+	// Recipes directory.
+	if cfgDir, cerr := os.UserConfigDir(); cerr == nil {
+		recDir := filepath.Join(cfgDir, "claude-computer-use", "recipes")
+		count := 0
+		if entries, rerr := os.ReadDir(recDir); rerr == nil {
+			for _, e := range entries {
+				if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+					count++
+				}
+			}
+		}
+		fmt.Printf("recipes dir: %s (%d recipes)\n", recDir, count)
+	}
+
 	wl, err := window.New().List()
 	if err != nil {
 		return err

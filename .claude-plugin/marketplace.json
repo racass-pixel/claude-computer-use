@@ -1,5 +1,6 @@
 {
   "name": "claude-computer-use",
+  "description": "Full desktop control for Claude Code on Windows: mouse, keyboard, windows, screenshots, UI Automation, recipes, a glowing take-over overlay and instant Esc Esc interrupt.",
   "owner": { "name": "racass-pixel", "url": "https://github.com/racass-pixel" },
   "plugins": [
     {
