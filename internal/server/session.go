@@ -355,7 +355,8 @@ func parseModifiers(names []string) ([]uint16, error) {
 
 // shotFor builds a shotSpec, resolving any screenshot_region against the current view.
 // Call at the top of the handler before begin() or any action that might change the view.
-func (s *Session) shotFor(wantShot bool, region *RegionIn) shotSpec {
+// Returns an error if screenshot_region is given but falls outside the current view.
+func (s *Session) shotFor(wantShot bool, region *RegionIn) (shotSpec, error) {
 	if region != nil {
 		wantShot = true // a region implies the caller wants a screenshot
 	}
@@ -364,13 +365,14 @@ func (s *Session) shotFor(wantShot bool, region *RegionIn) shotSpec {
 		v := s.currentView()
 		r := geom.Rect{X: region.X, Y: region.Y, W: region.W, H: region.H}
 		sr := v.RectToScreen(r).Intersect(v.Screen)
-		if !sr.Empty() {
-			spec.Region = region
-			spec.screenRect = &sr
-			spec.monitorID = v.Monitor
+		if sr.Empty() {
+			return shotSpec{}, fmt.Errorf("screenshot_region %+v is outside the current view (%dx%d)", r, v.Image.W, v.Image.H)
 		}
+		spec.Region = region
+		spec.screenRect = &sr
+		spec.monitorID = v.Monitor
 	}
-	return spec
+	return spec, nil
 }
 
 func parseHexColor(s string) (r, g, b uint8, err error) {

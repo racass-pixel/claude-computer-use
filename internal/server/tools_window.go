@@ -72,7 +72,10 @@ type WindowIn struct {
 
 func (s *Session) toolWindow(ctx context.Context, req *mcp.CallToolRequest, in WindowIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	list, err := s.d.Wins.List()
 	if err != nil {
 		return errResult("windows_failed", err.Error()), nil, nil

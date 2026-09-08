@@ -30,7 +30,10 @@ func summarizeText(t string) string {
 
 func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in TypeIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	if in.Text == "" {
 		return errResult("bad_args", "text is empty"), nil, nil
 	}
@@ -53,7 +56,10 @@ type KeyIn struct {
 
 func (s *Session) toolKey(ctx context.Context, req *mcp.CallToolRequest, in KeyIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	names := in.Keys
 	if in.Key != "" {
 		names = append([]string{in.Key}, names...)

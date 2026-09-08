@@ -120,7 +120,10 @@ func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in Ba
 	if len(in.Actions) == 0 {
 		return errResult("bad_args", "actions is empty"), nil, nil
 	}
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	stop := in.StopOnError == nil || *in.StopOnError
 	steps, allOK := s.runSteps(ctx, in.Actions, stop)
 	f := map[string]any{"ok": allOK, "steps": steps, "completed": len(steps)}

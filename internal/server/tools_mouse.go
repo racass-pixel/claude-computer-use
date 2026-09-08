@@ -24,7 +24,10 @@ type ClickIn struct {
 
 func (s *Session) toolClick(ctx context.Context, req *mcp.CallToolRequest, in ClickIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	target := in.Element
 	if in.X != nil && in.Y != nil {
 		target = fmt.Sprintf("%d,%d", *in.X, *in.Y)
@@ -57,7 +60,10 @@ type MoveIn struct {
 
 func (s *Session) toolMove(ctx context.Context, req *mcp.CallToolRequest, in MoveIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(in.Screenshot != nil && *in.Screenshot, in.ScreenshotRegion)
+	shot, err := s.shotFor(in.Screenshot != nil && *in.Screenshot, in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	p, err := s.resolvePoint(in.X, in.Y, in.Element)
 	if err != nil {
 		return errResult("bad_target", err.Error()), nil, nil
@@ -88,7 +94,10 @@ type DragIn struct {
 
 func (s *Session) toolDrag(ctx context.Context, req *mcp.CallToolRequest, in DragIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	from, err := s.resolvePoint(in.From.X, in.From.Y, in.From.Element)
 	if err != nil {
 		return errResult("bad_target", "from: "+err.Error()), nil, nil
@@ -118,7 +127,10 @@ type ScrollIn struct {
 
 func (s *Session) toolScroll(ctx context.Context, req *mcp.CallToolRequest, in ScrollIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	var at *geom.Point
 	if in.X != nil && in.Y != nil {
 		p, err := s.resolvePoint(in.X, in.Y, "")
@@ -214,7 +226,10 @@ type ClickUntilIn struct {
 func (s *Session) toolClickUntil(ctx context.Context, req *mcp.CallToolRequest, in ClickUntilIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
 	// Resolve screenshot region from current view before anything changes.
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 
 	// Resolve click point.
 	clickPt, err := s.resolvePoint(in.X, in.Y, in.Element)
@@ -305,12 +320,20 @@ func (s *Session) toolClickUntil(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	ok := stoppedBy != "paused"
+	probeImg := [2]int{0, 0}
+	if in.Probe.X != nil {
+		probeImg[0] = *in.Probe.X
+	}
+	if in.Probe.Y != nil {
+		probeImg[1] = *in.Probe.Y
+	}
 	extra := map[string]any{
-		"ok":          ok,
-		"clicks":      clicks,
-		"stopped_by":  stoppedBy,
-		"probe":       [2]int{probePt.X, probePt.Y},
-		"color_final": finalColor,
+		"ok":           ok,
+		"clicks":       clicks,
+		"stopped_by":   stoppedBy,
+		"probe":        probeImg,
+		"probe_screen": [2]int{probePt.X, probePt.Y},
+		"color_final":  finalColor,
 	}
 	return s.finish("click_until", t0, extra, shot, 0), nil, nil
 }

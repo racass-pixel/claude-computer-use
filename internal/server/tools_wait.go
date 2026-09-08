@@ -55,7 +55,10 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in WaitIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
-	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	shot, err := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
+	if err != nil {
+		return errResult("bad_args", err.Error()), nil, nil
+	}
 	timeout := time.Duration(in.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 10 * time.Second

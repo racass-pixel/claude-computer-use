@@ -170,6 +170,47 @@ func TestBatchClickUntil(t *testing.T) {
 	}
 }
 
+// screenshot_region outside the view returns an error and no input calls.
+func TestClickWithBadScreenshotRegionReturnsError(t *testing.T) {
+	h := newHarness(t)
+	h.s.toolScreenshot(context.Background(), nil, ScreenshotIn{})
+	x, y := 683, 384
+	region := &RegionIn{X: 9000, Y: 9000, W: 200, H: 100} // far outside 1366x768 view
+	res, _, _ := h.s.toolClick(context.Background(), nil, ClickIn{X: &x, Y: &y, ScreenshotRegion: region})
+	if !res.IsError {
+		t.Fatalf("expected error for out-of-range screenshot_region")
+	}
+	if len(h.in.Calls) != 0 {
+		t.Fatalf("no input calls expected, got %v", h.in.Calls)
+	}
+}
+
+// click_until with stop:"mismatch" stops when the probe stops matching.
+func TestClickUntilStopsMismatch(t *testing.T) {
+	h := newHarness(t)
+	yellow := []byte{0xFF, 0xFF, 0x00, 0xFF}
+	red := []byte{0xFF, 0x00, 0x00, 0xFF}
+	h.scr.Frames = [][]byte{yellow, yellow, red}
+	x, y := 683, 384
+	px, py := 10, 10
+	off := false
+	res, _, _ := h.s.toolClickUntil(context.Background(), nil, ClickUntilIn{
+		X: &x, Y: &y,
+		Probe:      PointIn{X: &px, Y: &py},
+		Color:      "#FFFF00",
+		Stop:       "mismatch",
+		IntervalMs: 50,
+		Screenshot: &off,
+	})
+	fields, _ := decode(t, res)
+	if fields["clicks"] != float64(2) {
+		t.Fatalf("clicks = %v, want 2", fields["clicks"])
+	}
+	if fields["stopped_by"] != "match" {
+		t.Fatalf("stopped_by = %v, want match", fields["stopped_by"])
+	}
+}
+
 func TestWindowFocusByRegex(t *testing.T) {
 	h := newHarness(t)
 	off := false
