@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "desktop": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": ["/c", "${CLAUDE_PLUGIN_ROOT}/bin/cu.cmd", "serve"]
+    }
+  }
+}

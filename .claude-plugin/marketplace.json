@@ -1,0 +1,11 @@
+{
+  "name": "claude-computer-use",
+  "owner": { "name": "racass-pixel", "url": "https://github.com/racass-pixel" },
+  "plugins": [
+    {
+      "name": "computer-use",
+      "source": "./",
+      "description": "Full desktop control for Claude Code on Windows with a glowing take-over overlay and instant user interrupt."
+    }
+  ]
+}
