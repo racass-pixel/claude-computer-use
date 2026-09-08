@@ -742,7 +742,7 @@ func TestActiveMonitorFallsBackToCursorThenPrimary(t *testing.T) {
 }
 
 func TestVirtualScreenIsUnion(t *testing.T) {
-	if got := VirtualScreen(twoMons); got != (geom.Rect{X: 0, Y: -200, W: 4480, H: 1640}) {
+	if got := VirtualScreen(twoMons); got != (geom.Rect{X: 0, Y: -200, W: 4480, H: 1440}) {
 		t.Fatalf("VirtualScreen = %v", got)
 	}
 }
