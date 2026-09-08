@@ -129,6 +129,12 @@ type hudSpec struct {
 	SparkPhase  float64
 	SparkScale  float64 // breathing multiplier 0.92..1.08; 0 means 1
 	Alpha       float64 // overall alpha multiplier 0..1; 0 means 1
+
+	// Crossfade: when CrossT is in (0,1), blend from Prev* to current over that progress.
+	PrevTitle  string
+	PrevSub    string
+	PrevPaused bool
+	CrossT     float64 // 0 = fully old, 1 = fully new; <= 0 or >= 1 means no crossfade
 }
 
 // ---- font cache (per-scale, avoids per-frame allocation) ----
@@ -173,8 +179,44 @@ func drawText(img *image.RGBA, fc font.Face, x, baseline int, s string, c color.
 	d.DrawString(s)
 }
 
+// lerpColor blends two colors: result = a*(1-t) + b*t.
+func lerpColor(a, b color.RGBA, t float64) color.RGBA {
+	s := 1 - t
+	return color.RGBA{
+		R: uint8(float64(a.R)*s + float64(b.R)*t),
+		G: uint8(float64(a.G)*s + float64(b.G)*t),
+		B: uint8(float64(a.B)*s + float64(b.B)*t),
+		A: uint8(float64(a.A)*s + float64(b.A)*t),
+	}
+}
+
+// scaleAlpha returns c with its alpha multiplied by a (0..1).
+func scaleAlpha(c color.RGBA, a float64) color.RGBA {
+	c.A = uint8(float64(c.A) * a)
+	return c
+}
+
+// drawSubLine draws a subtitle line (verb in warm gray, detail in muted) at the given position and alpha.
+func drawSubLine(img *image.RGBA, subFace font.Face, x, baseline int, sub string, a float64) {
+	if sub == "" || a <= 0 {
+		return
+	}
+	verb, detail := sub, ""
+	if dot := strings.Index(sub, " · "); dot >= 0 {
+		verb = sub[:dot]
+		detail = sub[dot:]
+	}
+	drawText(img, subFace, x, baseline, verb, scaleAlpha(hudSubColor, a))
+	if detail != "" {
+		vw := textWidth(subFace, verb)
+		drawText(img, subFace, x+vw, baseline, detail, scaleAlpha(hudDetailColor, a))
+	}
+}
+
 // renderHUD draws the Claude-style pill HUD.
 // Layout: line 1 = [spark] [title]; line 2 = [action verb + detail] ... [Esc][Esc] hint
+// When CrossT is in (0,1), both old (Prev*) and new captions are drawn on one canvas
+// at complementary alphas, and the pill is sized to the max of both.
 func renderHUD(spec hudSpec) *image.RGBA {
 	fontOnce.Do(loadFonts)
 	sc := spec.Scale
@@ -184,6 +226,14 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	alpha := spec.Alpha
 	if alpha <= 0 {
 		alpha = 1
+	}
+
+	crossfading := spec.CrossT > 0 && spec.CrossT < 1
+	newT := spec.CrossT
+	oldT := 1 - newT
+	if !crossfading {
+		newT = 1
+		oldT = 0
 	}
 
 	titleFace := cachedFace(fontMed, 15*sc)
@@ -199,14 +249,28 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	titleH := titleFace.Metrics().Height.Ceil()
 	subH := subFace.Metrics().Height.Ceil()
 
-	s, ok := texts[spec.Lang]
+	// During crossfade, pill width = max of old and new text.
+	if crossfading {
+		if ptw := textWidth(titleFace, spec.PrevTitle); ptw > tw {
+			tw = ptw
+		}
+	}
+
+	// Key-cap hint: blend between paused and controlling text.
+	curPaused := spec.Paused
+	prevPaused := spec.PrevPaused
+	if !crossfading {
+		prevPaused = curPaused
+	}
+	strs, ok := texts[spec.Lang]
 	if !ok {
-		s = texts["en"]
+		strs = texts["en"]
 	}
-	hint := s.TakeControl
-	if spec.Paused {
-		hint = s.HandBack
+	hint := strs.TakeControl
+	if curPaused {
+		hint = strs.HandBack
 	}
+	// During palette crossfade, use the new hint (it changes instantly).
 
 	keys := strings.Fields(spec.HotkeyLabel)
 	if len(keys) == 0 {
@@ -232,6 +296,11 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	if spec.Sub != "" {
 		subTW = textWidth(subFace, spec.Sub)
 	}
+	if crossfading && spec.PrevSub != "" {
+		if pw := textWidth(subFace, spec.PrevSub); pw > subTW {
+			subTW = pw
+		}
+	}
 	subGapPx := int(20 * sc)
 	line2W := subTW
 	if subTW > 0 {
@@ -250,11 +319,30 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
 	radius := 14 * sc
-	bg := hudBG
-	hairline := hudHairline
-	if spec.Paused {
-		bg = hudBGPaused
-		hairline = hudHairlinePsd
+
+	// Palette: blend between controlling and paused during crossfade.
+	var bg, hairline color.RGBA
+	if crossfading && prevPaused != curPaused {
+		// Palette crossfade: prevPaused -> curPaused.
+		bgFrom, bgTo := hudBG, hudBG
+		hlFrom, hlTo := hudHairline, hudHairline
+		if prevPaused {
+			bgFrom = hudBGPaused
+			hlFrom = hudHairlinePsd
+		}
+		if curPaused {
+			bgTo = hudBGPaused
+			hlTo = hudHairlinePsd
+		}
+		bg = lerpColor(bgFrom, bgTo, newT)
+		hairline = lerpColor(hlFrom, hlTo, newT)
+	} else {
+		bg = hudBG
+		hairline = hudHairline
+		if curPaused {
+			bg = hudBGPaused
+			hairline = hudHairlinePsd
+		}
 	}
 
 	fillRoundedRect(img, img.Bounds(), radius, hairline)
@@ -270,7 +358,18 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	if sparkScale <= 0 {
 		sparkScale = 1
 	}
-	if spec.Paused {
+	if crossfading && prevPaused != curPaused {
+		// Blend spark color between accent and gray.
+		colFrom := spec.Accent
+		if prevPaused {
+			colFrom = pausedColor
+		}
+		colTo := spec.Accent
+		if curPaused {
+			colTo = pausedColor
+		}
+		sparkCol = lerpColor(colFrom, colTo, newT)
+	} else if curPaused {
 		sparkCol = pausedColor
 		sparkPhase = 0
 		sparkScale = 1
@@ -279,23 +378,23 @@ func renderHUD(spec hudSpec) *image.RGBA {
 
 	// Title
 	x := padX + sparkSize + sparkGap
-	drawText(img, titleFace, x, padY+titleFace.Metrics().Ascent.Ceil(), spec.Title, hudTitleColor)
+	titleBaseline := padY + titleFace.Metrics().Ascent.Ceil()
+	if crossfading && spec.PrevTitle != spec.Title {
+		drawText(img, titleFace, x, titleBaseline, spec.PrevTitle, scaleAlpha(hudTitleColor, oldT))
+		drawText(img, titleFace, x, titleBaseline, spec.Title, scaleAlpha(hudTitleColor, newT))
+	} else {
+		drawText(img, titleFace, x, titleBaseline, spec.Title, hudTitleColor)
+	}
 
 	// Line 2
 	line2Y := padY + titleH + lineGap
 	line2Baseline := line2Y + subFace.Metrics().Ascent.Ceil()
 
-	if spec.Sub != "" {
-		verb, detail := spec.Sub, ""
-		if dot := strings.Index(spec.Sub, " · "); dot >= 0 {
-			verb = spec.Sub[:dot]
-			detail = spec.Sub[dot:]
-		}
-		drawText(img, subFace, padX, line2Baseline, verb, hudSubColor)
-		if detail != "" {
-			vw := textWidth(subFace, verb)
-			drawText(img, subFace, padX+vw, line2Baseline, detail, hudDetailColor)
-		}
+	if crossfading && spec.PrevSub != spec.Sub {
+		drawSubLine(img, subFace, padX, line2Baseline, spec.PrevSub, oldT)
+		drawSubLine(img, subFace, padX, line2Baseline, spec.Sub, newT)
+	} else {
+		drawSubLine(img, subFace, padX, line2Baseline, spec.Sub, 1)
 	}
 
 	// Key-caps

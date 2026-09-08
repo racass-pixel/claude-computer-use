@@ -160,6 +160,62 @@ func TestRenderHUDKeyCaps(t *testing.T) {
 	}
 }
 
+func TestCrossfadeShortLongNoBoundsCorruption(t *testing.T) {
+	// Crossfade between a short and long caption at t=0.5.
+	// The pill must use the max width, no non-transparent pixels outside the pill,
+	// and the hairline top row must be uniform across the width.
+	shortSub := "Clicking · 1,2"
+	longSub := "Running a recipe · open-notepad-save-and-close-document"
+	img := renderHUD(hudSpec{
+		Title:       "Test",
+		Sub:         longSub,
+		PrevTitle:   "Test",
+		PrevSub:     shortSub,
+		CrossT:      0.5,
+		HotkeyLabel: "Esc Esc",
+		Lang:        "en",
+		Scale:       1,
+		Accent:      color.RGBA{R: 217, G: 119, B: 87, A: 255},
+	})
+	b := img.Bounds()
+	// No pixel outside the bounds should be non-transparent (they are all zero-initialized).
+	// Check all four corners are transparent (rounded rect).
+	if img.RGBAAt(0, 0).A != 0 {
+		t.Fatal("top-left corner must be transparent")
+	}
+	if img.RGBAAt(b.Dx()-1, 0).A != 0 {
+		t.Fatal("top-right corner must be transparent")
+	}
+
+	// The hairline top row (outside rounded corners) must be uniform.
+	// Sample the middle of the top row — it should have the hairline alpha.
+	midTop := img.RGBAAt(b.Dx()/2, 0)
+	if midTop.A == 0 {
+		t.Fatal("hairline at top center must be visible")
+	}
+	// Check that pixels on the top row outside the rounded corners have consistent alpha.
+	// Radius is 14 at scale 1, so skip the first/last 16 pixels.
+	margin := 16
+	for x := margin; x < b.Dx()-margin; x++ {
+		c := img.RGBAAt(x, 0)
+		if c.A > 0 && c.A != midTop.A {
+			diff := int(c.A) - int(midTop.A)
+			if diff > 1 || diff < -1 {
+				t.Fatalf("hairline non-uniform at x=%d: alpha=%d vs mid=%d (skew/tear)", x, c.A, midTop.A)
+			}
+		}
+	}
+
+	// The pill width should accommodate the long caption (wider than short-only).
+	imgShort := renderHUD(hudSpec{
+		Title: "Test", Sub: shortSub, HotkeyLabel: "Esc Esc", Lang: "en", Scale: 1,
+		Accent: color.RGBA{R: 217, G: 119, B: 87, A: 255},
+	})
+	if b.Dx() <= imgShort.Bounds().Dx() {
+		t.Fatalf("crossfade pill should be wider than short-only: cf=%d short=%d", b.Dx(), imgShort.Bounds().Dx())
+	}
+}
+
 func TestRippleFadesOut(t *testing.T) {
 	a := renderRipple(120, 0.1, color.RGBA{R: 255, A: 255})
 	z := renderRipple(120, 1.0, color.RGBA{R: 255, A: 255})

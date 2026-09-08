@@ -57,7 +57,7 @@ func runDemo(args []string) error {
 		HotkeyLabel: "Esc Esc",
 		Thick:       cfg.BorderThickness,
 		Intensity:   cfg.BorderIntensity,
-		Shimmer:     cfg.BorderShimmerEnabled(),
+		ShimmerOff:  !cfg.BorderShimmerEnabled(),
 	})
 	if err != nil {
 		return err

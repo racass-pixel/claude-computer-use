@@ -88,11 +88,12 @@ type Overlay struct {
 	animStart time.Time   // when the animation loop started (for spark rotation)
 
 	// Caption crossfade state (UI-thread-only)
-	prevTitle  string
-	prevSub    string
-	cfadeT0    time.Time // crossfade start; zero = no crossfade
-	cfadeTitle string    // old title during crossfade
-	cfadeSub   string    // old sub during crossfade
+	prevTitle       string
+	prevSub         string
+	cfadeT0         time.Time // crossfade start; zero = no crossfade
+	cfadeTitle      string    // old title during crossfade
+	cfadeSub        string    // old sub during crossfade
+	cfadePrevPaused bool      // old paused state for palette blend
 
 	// Ripple (UI-thread-only)
 	rip     *layeredWin
@@ -112,9 +113,21 @@ func New(t *uithread.Thread, cfg Config) (*Overlay, error) {
 func (o *Overlay) Show(m platform.Monitor, s platform.OverlayState) {
 	o.mu.Lock()
 	same := o.state == s && o.mon.ID == m.ID && o.mon.Rect == m.Rect
+	prevState := o.state
+	prevMon := o.mon
 	o.state, o.mon = s, m
 	o.mu.Unlock()
 	if same {
+		return
+	}
+	// If only the state changed (Controlling <-> Paused) on the same monitor
+	// and the HUD is already visible, crossfade instead of rebuilding.
+	sameMonitor := prevMon.ID == m.ID && prevMon.Rect == m.Rect
+	stateTransition := sameMonitor &&
+		prevState != platform.OverlayHidden && s != platform.OverlayHidden &&
+		prevState != s
+	if stateTransition {
+		o.t.Do(func() { o.transitionState(m, s, prevState) })
 		return
 	}
 	o.t.Do(func() { o.rebuild(m, s) })
@@ -223,6 +236,46 @@ func (o *Overlay) rebuild(m platform.Monitor, s platform.OverlayState) {
 	}
 }
 
+// transitionState crossfades HUD text/palette when state changes on the same monitor.
+// Rebuilds border strips but keeps the HUD window (no slide-in).
+func (o *Overlay) transitionState(m platform.Monitor, s, prevState platform.OverlayState) {
+	// Rebuild border strips with new color/peak.
+	th := int(math.Round(float64(o.cfg.Thick) * m.ScaleFactor))
+	peak := o.cfg.Intensity
+	col := o.cfg.Accent
+	if s == platform.OverlayPaused {
+		col = pausedColor
+		peak *= 0.7
+	}
+	o.set = renderStrips(borderSpec{W: m.Rect.W, H: m.Rect.H, Thick: th, Color: col, Peak: peak})
+
+	// Snapshot old text for crossfade.
+	o.mu.Lock()
+	prevPaused := prevState == platform.OverlayPaused
+	oldTitle, oldSub := hudText(o.cfg.Lang, o.cfg.HotkeyLabel, o.title, o.action, prevPaused)
+	o.mu.Unlock()
+	o.cfadeTitle = oldTitle
+	o.cfadeSub = oldSub
+	o.cfadePrevPaused = prevPaused
+	o.cfadeT0 = time.Now()
+
+	// Cancel any previous hide timer.
+	if o.hideAt != nil {
+		o.hideAt.Stop()
+		o.hideAt = nil
+	}
+	// Make sure animation loop is running.
+	if o.anim == nil {
+		o.startAnim()
+	}
+	// Schedule fade-out if entering paused.
+	if s == platform.OverlayPaused {
+		o.hideAt = time.AfterFunc(2500*time.Millisecond, func() {
+			o.t.Do(o.startFadeOut)
+		})
+	}
+}
+
 func (o *Overlay) frame() {
 	if o.set == nil {
 		return
@@ -232,7 +285,7 @@ func (o *Overlay) frame() {
 	paused := o.state == platform.OverlayPaused
 	o.mu.Unlock()
 	shimmerPos := -1.0
-	if o.cfg.Shimmer && !paused {
+	if !o.cfg.ShimmerOff && !paused {
 		// Shimmer travels around the frame once per 6 seconds.
 		shimmerPos = math.Mod(o.phase/(2*math.Pi)*2.4/6.0, 1.0)
 	}
@@ -355,9 +408,13 @@ func (o *Overlay) refreshHUD() {
 	// Detect text change for crossfade.
 	if o.prevTitle != "" || o.prevSub != "" {
 		if spec.Title != o.prevTitle || spec.Sub != o.prevSub {
-			o.cfadeTitle = o.prevTitle
-			o.cfadeSub = o.prevSub
-			o.cfadeT0 = time.Now()
+			// Only start a new crossfade if one is not already running from transitionState.
+			if o.cfadeT0.IsZero() {
+				o.cfadeTitle = o.prevTitle
+				o.cfadeSub = o.prevSub
+				o.cfadePrevPaused = spec.Paused // same palette for text-only crossfade
+				o.cfadeT0 = time.Now()
+			}
 		}
 	}
 	o.prevTitle = spec.Title
@@ -369,10 +426,8 @@ func (o *Overlay) refreshHUD() {
 	alpha := 1.0
 	if o.hudAnimK != hudAnimNone {
 		elapsed := float64(now.Sub(o.hudAnimT0).Milliseconds())
-		img := renderHUD(spec) // render once to get height
-		h := float64(img.Bounds().Dy())
-		yOff, alpha = hudAnimState(o.hudAnimK, elapsed, h)
-		// Check if animation finished.
+		// Use a dummy height for slide-in calculation; renderHUD will give us the real one.
+		yOff, alpha = hudAnimState(o.hudAnimK, elapsed, float64(o.hudH))
 		switch o.hudAnimK {
 		case hudAnimSlideIn:
 			if elapsed >= slideInMs {
@@ -388,47 +443,24 @@ func (o *Overlay) refreshHUD() {
 		}
 	}
 
-	// Apply crossfade: blend old and new captions.
+	// Fill crossfade fields into the spec.
 	if !o.cfadeT0.IsZero() {
 		cfElapsed := float64(now.Sub(o.cfadeT0).Milliseconds())
-		oldA, newA := crossFadeAlphas(cfElapsed)
-		if oldA <= 0 {
-			// Crossfade done.
+		_, newA := crossFadeAlphas(cfElapsed)
+		if newA >= 1 {
 			o.cfadeT0 = time.Time{}
 		} else {
-			// Render old spec at oldA, new spec at newA, composite.
-			oldSpec := spec
-			oldSpec.Title = o.cfadeTitle
-			oldSpec.Sub = o.cfadeSub
-			oldSpec.Alpha = oldA * alpha
-			newSpec := spec
-			newSpec.Alpha = newA * alpha
-			imgOld := renderHUD(oldSpec)
-			imgNew := renderHUD(newSpec)
-			// Composite: take the larger bounds.
-			w := max(imgOld.Bounds().Dx(), imgNew.Bounds().Dx())
-			h := max(imgOld.Bounds().Dy(), imgNew.Bounds().Dy())
-			composite := image.NewRGBA(image.Rect(0, 0, w, h))
-			// Copy old then blend new over it.
-			copy(composite.Pix, imgOld.Pix)
-			for i := 0; i < len(imgNew.Pix) && i < len(composite.Pix); i += 4 {
-				sa := float64(imgNew.Pix[i+3]) / 255
-				da := float64(composite.Pix[i+3]) / 255
-				outA := sa + da*(1-sa)
-				if outA > 0 {
-					for c := 0; c < 3; c++ {
-						composite.Pix[i+c] = uint8((float64(imgNew.Pix[i+c])*sa + float64(composite.Pix[i+c])*da*(1-sa)) / outA)
-					}
-					composite.Pix[i+3] = uint8(outA * 255)
-				}
-			}
-			o.updateHUDWindow(composite, m, yOff)
-			return
+			spec.PrevTitle = o.cfadeTitle
+			spec.PrevSub = o.cfadeSub
+			spec.PrevPaused = o.cfadePrevPaused
+			spec.CrossT = newA
 		}
 	}
 
 	spec.Alpha = alpha
 	img := renderHUD(spec)
+	// Update hudH for slide-in calculation on next frame.
+	o.hudH = img.Bounds().Dy()
 	o.updateHUDWindow(img, m, yOff)
 }
 

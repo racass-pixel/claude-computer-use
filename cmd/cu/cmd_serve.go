@@ -88,7 +88,7 @@ func runServe(args []string) error {
 	}
 	var ov platform.Overlay = platform.NopOverlay{}
 	if cfg.Overlay {
-		o, oerr := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: hotkey.String(), Thick: cfg.BorderThickness, Intensity: cfg.BorderIntensity, Shimmer: cfg.BorderShimmerEnabled()})
+		o, oerr := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: hotkey.String(), Thick: cfg.BorderThickness, Intensity: cfg.BorderIntensity, ShimmerOff: !cfg.BorderShimmerEnabled()})
 		if oerr != nil {
 			return oerr
 		}
