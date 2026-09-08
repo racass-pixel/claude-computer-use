@@ -10,6 +10,7 @@ import (
 
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
 	"github.com/racass-pixel/claude-computer-use/internal/win"
+	"github.com/racass-pixel/claude-computer-use/internal/window"
 )
 
 func runDoctor(args []string) error {
@@ -31,6 +32,18 @@ func runDoctor(args []string) error {
 	}
 	if p, err := win.GetCursorPos(); err == nil {
 		fmt.Printf("cursor: %d,%d\n", p.X, p.Y)
+	}
+	wl, err := window.New().List()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("windows: %d\n", len(wl))
+	for _, w := range wl {
+		mark := " "
+		if w.Foreground {
+			mark = "*"
+		}
+		fmt.Printf(" %s %d %-20s %-9s %v %q\n", mark, w.ID, w.Process, w.State, w.Rect, w.Title)
 	}
 	return nil
 }
