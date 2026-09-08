@@ -8935,3 +8935,157 @@ Wait for the `release` workflow to publish `cu_windows_amd64.zip`, `cu_windows_a
 - Spec coverage: §3 architecture → Tasks 1-3, 8, 11; §4 coordinates → Task 4 (View) and 8-9 (resolvePoint); §5 tools → Tasks 8, 9, 15 (all 16 tools registered); §6 overlay → Tasks 12-13; §7 guard → Tasks 10, 11, 14 (hooks, IPC, pause-wait in `begin`); §8 plugin files → Tasks 1, 14, 16, 17; §9 models → Task 16 (operator frontmatter + skill overrides); §10 limits → Task 17 README + doctor.
 - Type consistency checked: `platform.*` names (Task 2) are used verbatim in Tasks 3-15; `screen.View` methods (Task 4) in Task 8/9/15; `server.Controller` (Task 8) is satisfied by the adapter in Task 11 over `guard.Machine` (Task 10); `win.OverlayClass` = `window.ExcludeClassPrefix` = "CuOverlay".
 - Known open points executors must resolve at the marked steps: `effort` frontmatter acceptance (Task 16), capture exclusion spike (Task 12 step 6), UIA vtable slots (Task 15 step 4), go-sdk in-memory transport helper name (Task 8 step 5).
+
+---
+
+### Task 19: Esc-Esc-only takeover, mouse glide, seamless glow (user feedback after the first live runs)
+
+User feedback (2026-09-08, after using the first build): (1) control must be taken back ONLY by the Esc Esc gesture — no auto-pause on other keys or mouse; (2) the cursor must glide to targets at a natural speed instead of teleporting, for clicks, drags and scrolls; (3) the glow looks stitched together from separate pieces — it must read as one continuous frame.
+
+**Files:**
+- Modify: `internal/config/config.go`, `config_test.go` (defaults: `auto_pause` false; new `mouse_glide_ms` 220 / `CU_MOUSE_GLIDE_MS`; `border_thickness` 56; new `border_intensity` 0.85 / `CU_BORDER_INTENSITY`)
+- Modify: `internal/actions/actions.go`, `actions_test.go` (`MoveTo` glide)
+- Modify: `internal/server/server.go` (`New` sets `actor.GlideMs`, `actor.Pos`), `internal/server/tools_mouse.go` (`toolMove` uses `MoveTo`)
+- Modify: `internal/overlay/border.go`, `border_test.go`, `overlay.go` (`Config.Intensity`), `overlay_windows.go` (`rebuild` uses `Intensity`), `cmd/cu/cmd_serve.go`, `cmd/cu/cmd_demo.go` (pass intensity), `agents/operator.md` + `skills/computer-use/SKILL.md` (mention that only Esc Esc pauses)
+
+**Interfaces:**
+- `actions.Actor` gains `GlideMs int` and `Pos func() (geom.Point, error)`; new `func (a *Actor) MoveTo(p geom.Point) error`. `Click`, `Drag` (to `from`) and `Scroll` (when a point is given) call `MoveTo` instead of `In.MouseMove`. Glide algorithm: read `Pos()` (nil or error → teleport); `dist = hypot`; if `GlideMs == 0 || dist < 4` → single `MouseMove`; else `steps = clamp(int(dist/8), 12, 60)`, `dur = GlideMs·(0.6 + 0.4·min(1, dist/800))` ms, for i in 1..steps: `t = i/steps`, `e = t<0.5 ? 4t³ : 1−(−2t+2)³/2` (ease-in-out cubic), `MouseMove(from + (to−from)·e)`, `sleep(dur/steps)`; the last point is exactly `to`.
+- `overlay.Config.Intensity float64` (peak alpha at the rim; paused uses `Intensity·0.7`). `renderStrips(borderSpec{W,H,Thick,Color,Peak})` now rasterizes ONE global function for every strip: for a pixel at monitor coordinates (gx, gy) let `d = min(gx, gy, W−1−gx, H−1−gy)` (distance to the nearest monitor edge, in px); `t = d/Thick` clamped to [0,1]; `alpha = Peak · (1−t)^1.7`, and for `d < 2·max(1, Thick/40)` (a thin rim) `alpha = max(alpha, Peak)`. Each strip converts its local (x,y) to (gx,gy) via its offset inside the monitor (Top: (x,y); Bottom: (x, H−Thick+y); Left: (x, Thick+y); Right: (W−Thick+x, Thick+y)). Remove the per-strip `corner()` softening. Base alpha is still stored for `apply(breath)`; breathing becomes gentler: `0.85 + 0.15·sin(phase)`.
+
+- [ ] **Step 1: Failing tests**
+
+`internal/actions/actions_test.go` additions:
+```go
+func TestMoveToGlidesWithEasingAndEndsExactly(t *testing.T) {
+	a, in, _ := newActor()
+	a.GlideMs = 200
+	cur := geom.Point{X: 0, Y: 0}
+	a.Pos = func() (geom.Point, error) { return cur, nil }
+	if err := a.MoveTo(geom.Point{X: 400, Y: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Calls) < 12 || in.Calls[len(in.Calls)-1] != "move 400,0" {
+		t.Fatalf("glide must emit >=12 moves ending at the target: %v", in.Calls)
+	}
+	prev := -1
+	for _, c := range in.Calls {
+		var x, y int
+		fmt.Sscanf(c, "move %d,%d", &x, &y)
+		if x < prev {
+			t.Fatalf("x must be monotonic: %v", in.Calls)
+		}
+		prev = x
+	}
+}
+
+func TestMoveToTeleportsWhenDisabledOrTiny(t *testing.T) {
+	a, in, _ := newActor()
+	a.GlideMs = 0
+	a.Pos = func() (geom.Point, error) { return geom.Point{}, nil }
+	_ = a.MoveTo(geom.Point{X: 300, Y: 300})
+	if len(in.Calls) != 1 {
+		t.Fatalf("GlideMs=0 must teleport: %v", in.Calls)
+	}
+	in.Calls = nil
+	a.GlideMs = 200
+	_ = a.MoveTo(geom.Point{X: 2, Y: 1})
+	if len(in.Calls) != 1 {
+		t.Fatalf("tiny distance must teleport: %v", in.Calls)
+	}
+}
+```
+Existing click/drag/scroll tests keep passing because `newActor()` leaves `Pos` nil (→ teleport).
+
+`internal/overlay/border_test.go` — replace `TestStripsSizesAndFalloff` with:
+```go
+func TestStripsFormOneContinuousFrame(t *testing.T) {
+	s := renderStrips(borderSpec{W: 400, H: 200, Thick: 40, Color: color.RGBA{R: 217, G: 119, B: 87, A: 255}, Peak: 0.8})
+	s.apply(1)
+	// rim is at full peak, interior fades
+	if a := s.Top.RGBAAt(200, 0).A; a < 200 || a > 210 {
+		t.Fatalf("rim alpha = %d, want ~204", a)
+	}
+	if s.Top.RGBAAt(200, 39).A > 10 {
+		t.Fatalf("inner edge must be nearly transparent: %d", s.Top.RGBAAt(200, 39).A)
+	}
+	// continuity across the Top/Left seam: Top(x=5, y=39) is d=5 and Left(x=5, y=0) is d=5
+	if s.Top.RGBAAt(5, 39).A != s.Left.RGBAAt(5, 0).A {
+		t.Fatalf("seam mismatch top=%d left=%d", s.Top.RGBAAt(5, 39).A, s.Left.RGBAAt(5, 0).A)
+	}
+	// corner pixel is on the rim in both directions
+	if s.Top.RGBAAt(0, 0).A != s.Top.RGBAAt(200, 0).A {
+		t.Fatalf("corner must be as bright as the rim")
+	}
+	// Right/Bottom mirror Left/Top
+	if s.Right.RGBAAt(39, 10).A != s.Left.RGBAAt(0, 10).A || s.Bottom.RGBAAt(100, 39).A != s.Top.RGBAAt(100, 0).A {
+		t.Fatalf("strips must be mirror-symmetric")
+	}
+	s.apply(0.5)
+	if half := s.Top.RGBAAt(200, 0).A; half < 98 || half > 106 {
+		t.Fatalf("breath 0.5 must halve alpha: %d", half)
+	}
+}
+```
+Config tests: `TestDefaults` expects `AutoPause == false`, `MouseGlideMs == 220`, `BorderThickness == 56`, `BorderIntensity == 0.85`; env override test adds `CU_MOUSE_GLIDE_MS=0` and `CU_BORDER_INTENSITY=0.5` (float parsing via `strconv.ParseFloat`).
+
+- [ ] **Step 2: Implement** per the Interfaces block. In `server.New`: `actor.GlideMs = cfg.MouseGlideMs; actor.Pos = d.Screen.CursorPos`. In `rebuild`: `peak := o.cfg.Intensity; if paused { peak *= 0.7 }`. `overlay.New` defaults `Intensity` to 0.85 when zero. `cmd_serve.go`/`cmd_demo.go`: `Intensity: cfg.BorderIntensity`. Guard config unchanged (reads `cfg.AutoPause`, now false by default). Update the operator/skill wording: "The user takes control ONLY with Esc Esc (by default); their mouse or typing does not pause you — so never fight the user's cursor: if the screen changes unexpectedly, re-observe."
+
+- [ ] **Step 3: Verify** `go test ./...`; `cu demo -seconds 4 -show-in-capture -o <scratch>/glow.png` → corners continuous, rim visible, no seams (view the PNG); `cu input move 200 200` then `cu input move 1800 900` — the second call takes ≈ 220–300 ms (time it) and `cu doctor` shows the cursor at 1800,900; a live `claude -p` Notepad task from outside the repo shows the cursor gliding (user-visible) and typing works.
+
+- [ ] **Step 4: Commit** `feat: Esc-Esc-only takeover by default, mouse glide, seamless glow`.
+
+---
+
+### Task 20: Recipes — procedural memory so repeated tasks run without model round-trips
+
+User feedback: "when actions are repetitive it should learn them and do them much faster". Design: the server records a trace of every action; the orchestrator distils a successful multi-step task into a **recipe** (parameterised tool steps with waits); on a similar request it searches recipes and replays one in a single `recipe run` call (server-side, no screenshots between steps), then verifies the end state. Recipes live in `%APPDATA%\claude-computer-use\recipes\<slug>.json`.
+
+**Files:**
+- Create: `internal/recipes/recipes.go`, `recipes_test.go`
+- Create: `internal/server/tools_recipe.go`, `tools_recipe_test.go`; Modify: `internal/server/server.go` (register `recipe`; `Deps.Recipes *recipes.Store`), `internal/server/session.go` (`trace` ring buffer written in `finish`; cleared by `control acquire` with a task), `internal/server/tools_control.go` (`acquire` clears the trace)
+- Modify: `cmd/cu/cmd_serve.go` (`recipes.Open(dir)`), `agents/operator.md` (add `recipe` to tools; "run recipes when told, verify after"), `skills/computer-use/SKILL.md` (Recipes section)
+
+**Interfaces:**
+```go
+package recipes
+
+type Step struct {
+	Tool string         `json:"tool"`           // any batchable tool: click, move, drag, scroll, type, key, wait, window, clipboard, find
+	Args map[string]any `json:"args,omitempty"` // string values may contain {{param}} placeholders
+	Note string         `json:"note,omitempty"`
+}
+type Recipe struct {
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description"`
+	App         string    `json:"app,omitempty"`  // process name, e.g. "notepad.exe"
+	Tags        []string  `json:"tags,omitempty"`
+	Params      []string  `json:"params,omitempty"`
+	Steps       []Step    `json:"steps"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Runs        int       `json:"runs"`
+	Successes   int       `json:"successes"`
+}
+type Match struct { Recipe Recipe; Score float64 }
+
+type Store struct{ Dir string }
+func Open(dir string) (*Store, error)                 // mkdir -p
+func Slugify(name string) string                     // lower, [a-z0-9]+ joined by '-', max 60
+func (s *Store) Save(r Recipe) (Recipe, error)       // sets Slug/CreatedAt/UpdatedAt, validates Steps non-empty + tools batchable
+func (s *Store) Get(slug string) (Recipe, error)
+func (s *Store) List() ([]Recipe, error)
+func (s *Store) Delete(slug string) error
+func (s *Store) Search(query, app string, limit int) ([]Match, error) // tokens(query) ∩ tokens(name+description+tags): score = |∩| / |tokens(query)| + 0.3 if app matches + 0.1·successRate; sorted desc; score<0.25 dropped
+func Render(r Recipe, params map[string]string) ([]Step, error)      // replaces {{k}} in every string arg; error if a declared param is missing
+func (s *Store) Bump(slug string, ok bool) error
+```
+Server tool `recipe`: `RecipeIn{Action string (search|get|save|run|delete|trace|list); Query, App, Slug, Name, Description string; Tags, Params []string; Steps []recipes.Step; Values map[string]string; Limit int; StopOnError *bool; Screenshot *bool}`. `run` = `Render` → execute through the same code path as `batch` (`batchable()` registry, `screenshot=false` per step, pause semantics via `begin()`), then `Bump(slug, allOK)`, then one screenshot; result includes `steps` like batch plus `recipe` slug and `runs/successes`. `trace` returns `s.traceEntries()` — `[]{tool, summary, ok, ms, at}` (last 200 actions, newest last). The tool description tells the model: "Search before doing a multi-step task you may have done before; after finishing a novel multi-step task successfully, distil the trace into a recipe with {{params}} for the variable parts and `wait` steps where the UI needs time."
+
+- [ ] **Step 1: Tests first** — `recipes_test.go`: save/get round-trip on a temp dir; `Slugify("Сохранить файл в Блокноте")` is non-empty ASCII (transliterate Cyrillic with a small table or fall back to a hash); search ranks an exact-name match above a partial; `Render` substitutes `{{text}}` and errors on a missing param; `Bump` increments. `tools_recipe_test.go` (fake harness): `save` then `run` executes the rendered steps (fake input shows `type hello` and `key_down 13`), result `ok:true`, `runs:1`; `trace` lists the actions performed by an earlier `click`; `run` of an unknown slug → error result.
+- [ ] **Step 2: Implement** store, tool, trace, registration, `cmd_serve.go` (`recipes.Open(filepath.Join(os.UserConfigDir(), "claude-computer-use", "recipes"))`, log and continue with nil on error → tool returns `unsupported`).
+- [ ] **Step 3: Prompt updates** — operator gets `mcp__plugin_computer-use_desktop__recipe` and a rule: "If the orchestrator names a recipe, run it first (`recipe{action:"run", slug, values}`), then verify the end state with a screenshot; fix by hand only what the recipe left undone." Skill: "Recipes" section — search first (`recipe{action:"search", query, app}`), pass the top match (score ≥ 0.5) to the operator, and after any successful novel task with ≥ 4 actions call `recipe{action:"trace"}` and save a recipe (name in the user's language, description with synonyms, `{{params}}` for text/paths, `wait{window|element|stable}` between app transitions).
+- [ ] **Step 4: Verify** unit tests; live: from outside the repo run the Notepad task twice — the second run should search, find the saved recipe and finish with fewer operator turns (report both turn counts); `%APPDATA%\claude-computer-use\recipes\` contains the JSON.
+- [ ] **Step 5: Commit** `feat: recipes — procedural memory with trace, search and replay`.
+
+Execution order ruling: Task 19 → Task 20 → Task 17 (docs/release, now also documenting recipes, glide, Esc-only) → Task 18 (eval; add "recipe replay speedup" and "glide feels natural" to the checklist).
