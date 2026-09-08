@@ -74,7 +74,7 @@ By default, only Esc Esc takes control back. Set `auto_pause: true` in the confi
 
 ## Tools
 
-The plugin exposes 16 MCP tools under the server name `desktop`:
+The plugin exposes 18 MCP tools under the server name `desktop`:
 
 | Tool | Purpose | Key arguments |
 |---|---|---|
@@ -91,11 +91,17 @@ The plugin exposes 16 MCP tools under the server name `desktop`:
 | `window` | Focus, minimize, maximize, restore, close, move, resize a window | `action`, `target` |
 | `find` | Find UI elements by name/role via Windows UI Automation | `query`, `role`, `window`, `limit` |
 | `wait` | Wait for a condition: sleep, window appears, screen stabilizes | `ms`, `window`, `stable`, `timeout_ms` |
+| `pixel` | Read the color of one or more pixels (for calibrating visual cues) | `x`, `y`, `points` |
+| `click_until` | Click repeatedly until a probe pixel matches (or stops matching) a color | `x`, `y`, `probe`, `color`, `max`, `interval_ms` |
 | `batch` | Run several actions in sequence, one screenshot at the end | `actions` |
 | `control` | Session control: status, acquire overlay, release, set HUD title | `action` |
 | `recipe` | Procedural memory: search, run, save, trace, get, list, delete | `action`, `slug`, `values` |
 
 All coordinates are pixels of the **last screenshot**. The server converts to screen pixels; the model never does coordinate arithmetic.
+
+### Grinding repetitive lists
+
+When Claude needs to process many identical rows (accept/deny, check/uncheck), `click_until` clicks a point repeatedly server-side until a probe pixel turns a target color — for example, clicking Deny on the top row until the 5th star of the next applicant is yellow. Combined with `pixel` (to learn the cue's color) and `screenshot_region` (to keep the zoom on the working area), this replaces one-click-per-model-turn with dozens of clicks per tool call.
 
 ## Configuration
 

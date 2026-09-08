@@ -63,14 +63,16 @@ func (s *Session) toolWindows(ctx context.Context, req *mcp.CallToolRequest, in 
 }
 
 type WindowIn struct {
-	Action     string    `json:"action" jsonschema:"focus, minimize, maximize, restore, close, move or resize"`
-	Target     string    `json:"target,omitempty" jsonschema:"\"foreground\" (default), a window id from windows, or a case-insensitive regexp on title/process"`
-	Rect       *RegionIn `json:"rect,omitempty" jsonschema:"for move/resize: target frame rect in SCREEN pixels (use monitors for bounds)"`
-	Screenshot *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+	Action           string    `json:"action" jsonschema:"focus, minimize, maximize, restore, close, move or resize"`
+	Target           string    `json:"target,omitempty" jsonschema:"\"foreground\" (default), a window id from windows, or a case-insensitive regexp on title/process"`
+	Rect             *RegionIn `json:"rect,omitempty" jsonschema:"for move/resize: target frame rect in SCREEN pixels (use monitors for bounds)"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
 }
 
 func (s *Session) toolWindow(ctx context.Context, req *mcp.CallToolRequest, in WindowIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
+	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
 	list, err := s.d.Wins.List()
 	if err != nil {
 		return errResult("windows_failed", err.Error()), nil, nil
@@ -114,5 +116,5 @@ func (s *Session) toolWindow(ctx context.Context, req *mcp.CallToolRequest, in W
 	s.mu.Lock()
 	s.mons = nil // a moved window may change the active monitor
 	s.mu.Unlock()
-	return s.finish("window", t0, map[string]any{"window": w.ID, "title": w.Title, "did": in.Action}, s.wantShot(in.Screenshot), s.settleFor("window")), nil, nil
+	return s.finish("window", t0, map[string]any{"window": w.ID, "title": w.Title, "did": in.Action}, shot, s.settleFor("window")), nil, nil
 }

@@ -36,4 +36,4 @@ Recipes are procedural memory — saved sequences of desktop actions that can be
    - Add `wait` steps (with `window`, `element`, or `stable`) between app transitions.
 
 ## Cost
-A screenshot is ~1.5k tokens. Prefer `find`, `batch`, `wait{stable:true}`, and `screenshot:false` on steps you do not need to see. Zoom with `screenshot{region}` only for small targets.
+A screenshot is ~1.5k tokens. Prefer `find`, `batch`, `wait{stable:true}`, and `screenshot:false` on steps you do not need to see. Zoom with `screenshot{region}` only for small targets. For repetitive lists where every row needs the same action, use `pixel` to calibrate a visual cue and `click_until` to grind through rows server-side without per-click screenshots.

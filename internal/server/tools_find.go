@@ -121,7 +121,7 @@ func (s *Session) toolFind(ctx context.Context, req *mcp.CallToolRequest, in Fin
 	}
 	s.logTiming("find", t0)
 	if in.Screenshot != nil && *in.Screenshot {
-		return s.finish("find", t0, f, true, 0), nil, nil
+		return s.finish("find", t0, f, shotSpec{Want: true}, 0), nil, nil
 	}
 	return okResult(f, nil), nil, nil
 }

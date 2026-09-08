@@ -2,6 +2,7 @@
 
 ## 0.1.0 — 2026-09-08
 
+- `pixel` and `click_until` tools for grinding repetitive lists without per-click screenshots; `screenshot_region` on every action tool for zoomed follow-up captures
 - 16 MCP tools: screenshot, click, move, drag, scroll, type, key, clipboard, monitors, windows, window, find, wait, batch, control, recipe
 - Glowing take-over overlay with HUD, click ripple and breathing animation
 - Instant user interrupt: Esc Esc (configurable hotkey) takes control back

@@ -10,19 +10,20 @@ import (
 )
 
 type BatchAction struct {
-	Tool string         `json:"tool" jsonschema:"click, move, drag, scroll, type, key, wait, window, clipboard or find"`
+	Tool string         `json:"tool" jsonschema:"click, move, drag, scroll, type, key, wait, window, clipboard, find, pixel or click_until"`
 	Args map[string]any `json:"args,omitempty" jsonschema:"the tool's arguments; screenshot is forced off for steps"`
 }
 
 type BatchIn struct {
-	Actions     []BatchAction `json:"actions" jsonschema:"steps executed in order"`
-	StopOnError *bool         `json:"stop_on_error,omitempty" jsonschema:"stop at the first failing step (default true)"`
-	Screenshot  *bool         `json:"screenshot,omitempty" jsonschema:"one screenshot after the last step (default true)"`
+	Actions          []BatchAction `json:"actions" jsonschema:"steps executed in order"`
+	StopOnError      *bool         `json:"stop_on_error,omitempty" jsonschema:"stop at the first failing step (default true)"`
+	ScreenshotRegion *RegionIn     `json:"screenshot_region,omitempty" jsonschema:"after all steps, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool         `json:"screenshot,omitempty" jsonschema:"one screenshot after the last step (default true)"`
 }
 
 type batchFn func(ctx context.Context, args json.RawMessage) (*mcp.CallToolResult, error)
 
-// wrap adapts a typed handler into a batchFn that forces screenshot=false.
+// wrap adapts a typed handler into a batchFn that forces screenshot=false and strips screenshot_region.
 func wrap[In any](h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, any, error)) batchFn {
 	return func(ctx context.Context, args json.RawMessage) (*mcp.CallToolResult, error) {
 		var m map[string]any
@@ -35,6 +36,7 @@ func wrap[In any](h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallTo
 			m = map[string]any{}
 		}
 		m["screenshot"] = false
+		delete(m, "screenshot_region")
 		b, _ := json.Marshal(m)
 		var in In
 		if err := json.Unmarshal(b, &in); err != nil {
@@ -47,16 +49,18 @@ func wrap[In any](h func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallTo
 
 func (s *Session) batchable() map[string]batchFn {
 	return map[string]batchFn{
-		"click":     wrap(s.toolClick),
-		"move":      wrap(s.toolMove),
-		"drag":      wrap(s.toolDrag),
-		"scroll":    wrap(s.toolScroll),
-		"type":      wrap(s.toolType),
-		"key":       wrap(s.toolKey),
-		"wait":      wrap(s.toolWait),
-		"window":    wrap(s.toolWindow),
-		"clipboard": wrap(s.toolClipboard),
-		"find":      wrap(s.toolFind),
+		"click":       wrap(s.toolClick),
+		"move":        wrap(s.toolMove),
+		"drag":        wrap(s.toolDrag),
+		"scroll":      wrap(s.toolScroll),
+		"type":        wrap(s.toolType),
+		"key":         wrap(s.toolKey),
+		"wait":        wrap(s.toolWait),
+		"window":      wrap(s.toolWindow),
+		"clipboard":   wrap(s.toolClipboard),
+		"find":        wrap(s.toolFind),
+		"pixel":       wrap(s.toolPixel),
+		"click_until": wrap(s.toolClickUntil),
 	}
 }
 
@@ -116,14 +120,13 @@ func (s *Session) toolBatch(ctx context.Context, req *mcp.CallToolRequest, in Ba
 	if len(in.Actions) == 0 {
 		return errResult("bad_args", "actions is empty"), nil, nil
 	}
+	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
 	stop := in.StopOnError == nil || *in.StopOnError
 	steps, allOK := s.runSteps(ctx, in.Actions, stop)
 	f := map[string]any{"ok": allOK, "steps": steps, "completed": len(steps)}
-	var res *mcp.CallToolResult
-	if s.wantShot(in.Screenshot) {
-		res = s.finish("batch", t0, f, true, 120*time.Millisecond)
-	} else {
-		res = s.finish("batch", t0, f, false, 0)
+	settle := time.Duration(0)
+	if shot.Want {
+		settle = 120 * time.Millisecond
 	}
-	return res, nil, nil
+	return s.finish("batch", t0, f, shot, settle), nil, nil
 }

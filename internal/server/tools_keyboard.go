@@ -12,10 +12,11 @@ import (
 )
 
 type TypeIn struct {
-	Text       string `json:"text" jsonschema:"text to type into the focused control; newlines press Enter, tabs press Tab"`
-	Mode       string `json:"mode,omitempty" jsonschema:"auto (default: unicode, paste when long), unicode, paste (clipboard + Ctrl+V), keys (slow per-character for apps that drop fast input)"`
-	DelayMs    int    `json:"delay_ms,omitempty" jsonschema:"delay between characters in ms (default 0)"`
-	Screenshot *bool  `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+	Text             string    `json:"text" jsonschema:"text to type into the focused control; newlines press Enter, tabs press Tab"`
+	Mode             string    `json:"mode,omitempty" jsonschema:"auto (default: unicode, paste when long), unicode, paste (clipboard + Ctrl+V), keys (slow per-character for apps that drop fast input)"`
+	DelayMs          int       `json:"delay_ms,omitempty" jsonschema:"delay between characters in ms (default 0)"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
 }
 
 func summarizeText(t string) string {
@@ -29,6 +30,7 @@ func summarizeText(t string) string {
 
 func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in TypeIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
+	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
 	if in.Text == "" {
 		return errResult("bad_args", "text is empty"), nil, nil
 	}
@@ -38,18 +40,20 @@ func (s *Session) toolType(ctx context.Context, req *mcp.CallToolRequest, in Typ
 	if err := s.actor.Type(in.Text, in.Mode, time.Duration(in.DelayMs)*time.Millisecond); err != nil {
 		return errResult("input_failed", err.Error()), nil, nil
 	}
-	return s.finish("type", t0, map[string]any{"chars": len([]rune(in.Text))}, s.wantShot(in.Screenshot), s.settleFor("type")), nil, nil
+	return s.finish("type", t0, map[string]any{"chars": len([]rune(in.Text))}, shot, s.settleFor("type")), nil, nil
 }
 
 type KeyIn struct {
-	Key        string   `json:"key,omitempty" jsonschema:"one chord such as ctrl+s, alt+f4, win+r, enter, f5"`
-	Keys       []string `json:"keys,omitempty" jsonschema:"a sequence of chords pressed one after another, e.g. [\"win+r\",\"enter\"]"`
-	HoldMs     int      `json:"hold_ms,omitempty" jsonschema:"how long to hold each chord (default 10)"`
-	Screenshot *bool    `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
+	Key              string    `json:"key,omitempty" jsonschema:"one chord such as ctrl+s, alt+f4, win+r, enter, f5"`
+	Keys             []string  `json:"keys,omitempty" jsonschema:"a sequence of chords pressed one after another, e.g. [\"win+r\",\"enter\"]"`
+	HoldMs           int       `json:"hold_ms,omitempty" jsonschema:"how long to hold each chord (default 10)"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot after the action (default true)"`
 }
 
 func (s *Session) toolKey(ctx context.Context, req *mcp.CallToolRequest, in KeyIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
+	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
 	names := in.Keys
 	if in.Key != "" {
 		names = append([]string{in.Key}, names...)
@@ -76,7 +80,7 @@ func (s *Session) toolKey(ctx context.Context, req *mcp.CallToolRequest, in KeyI
 			time.Sleep(40 * time.Millisecond)
 		}
 	}
-	return s.finish("key", t0, map[string]any{"keys": names}, s.wantShot(in.Screenshot), s.settleFor("key")), nil, nil
+	return s.finish("key", t0, map[string]any{"keys": names}, shot, s.settleFor("key")), nil, nil
 }
 
 type ClipboardIn struct {

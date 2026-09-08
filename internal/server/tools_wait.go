@@ -13,12 +13,13 @@ import (
 )
 
 type WaitIn struct {
-	Ms         int     `json:"ms,omitempty" jsonschema:"plain sleep in milliseconds"`
-	Window     string  `json:"window,omitempty" jsonschema:"wait until a window matching this regexp (title or process) exists"`
-	Stable     *bool   `json:"stable,omitempty" jsonschema:"wait until the active monitor stops changing (animations, page loads)"`
-	Element    *FindIn `json:"element,omitempty" jsonschema:"wait until find returns at least one element for this query"`
-	TimeoutMs  int     `json:"timeout_ms,omitempty" jsonschema:"give up after this long (default 10000)"`
-	Screenshot *bool   `json:"screenshot,omitempty" jsonschema:"return a screenshot when done (default true)"`
+	Ms               int       `json:"ms,omitempty" jsonschema:"plain sleep in milliseconds"`
+	Window           string    `json:"window,omitempty" jsonschema:"wait until a window matching this regexp (title or process) exists"`
+	Stable           *bool     `json:"stable,omitempty" jsonschema:"wait until the active monitor stops changing (animations, page loads)"`
+	Element          *FindIn   `json:"element,omitempty" jsonschema:"wait until find returns at least one element for this query"`
+	TimeoutMs        int       `json:"timeout_ms,omitempty" jsonschema:"give up after this long (default 10000)"`
+	ScreenshotRegion *RegionIn `json:"screenshot_region,omitempty" jsonschema:"after the action, return a zoomed screenshot of this rectangle (last-screenshot pixels) instead of the whole monitor; the coordinate space switches to that region"`
+	Screenshot       *bool     `json:"screenshot,omitempty" jsonschema:"return a screenshot when done (default true)"`
 }
 
 // frameDiff is the mean absolute RGB difference (0..255) between two equally sized frames.
@@ -54,6 +55,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in WaitIn) (*mcp.CallToolResult, any, error) {
 	t0 := time.Now()
+	shot := s.shotFor(s.wantShot(in.Screenshot), in.ScreenshotRegion)
 	timeout := time.Duration(in.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -70,7 +72,7 @@ func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in Wai
 		for {
 			list, _ := s.d.Wins.List()
 			if w, err := window.Match(list, in.Window); err == nil && re != nil {
-				return s.finish("wait", t0, map[string]any{"condition": cond, "matched": map[string]any{"id": w.ID, "title": w.Title, "process": w.Process}}, s.wantShot(in.Screenshot), 50*time.Millisecond), nil, nil
+				return s.finish("wait", t0, map[string]any{"condition": cond, "matched": map[string]any{"id": w.ID, "title": w.Title, "process": w.Process}}, shot, 50*time.Millisecond), nil, nil
 			}
 			if time.Now().After(deadline) || !sleepCtx(ctx, 150*time.Millisecond) {
 				break
@@ -81,7 +83,7 @@ func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in Wai
 		for {
 			out, _, err := s.findElements(*in.Element)
 			if err == nil && len(out) > 0 {
-				return s.finish("wait", t0, map[string]any{"condition": cond, "elements": out, "count": len(out)}, s.wantShot(in.Screenshot), 50*time.Millisecond), nil, nil
+				return s.finish("wait", t0, map[string]any{"condition": cond, "elements": out, "count": len(out)}, shot, 50*time.Millisecond), nil, nil
 			}
 			if time.Now().After(deadline) || !sleepCtx(ctx, 200*time.Millisecond) {
 				break
@@ -101,7 +103,7 @@ func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in Wai
 			if prev != nil && frameDiff(prev, small) < 1.0 {
 				quiet++
 				if quiet >= 2 {
-					return s.finish("wait", t0, map[string]any{"condition": cond, "stable_after_ms": time.Since(t0).Milliseconds()}, s.wantShot(in.Screenshot), 0), nil, nil
+					return s.finish("wait", t0, map[string]any{"condition": cond, "stable_after_ms": time.Since(t0).Milliseconds()}, shot, 0), nil, nil
 				}
 			} else {
 				quiet = 0
@@ -117,8 +119,8 @@ func (s *Session) toolWait(ctx context.Context, req *mcp.CallToolRequest, in Wai
 			d = 500 * time.Millisecond
 		}
 		sleepCtx(ctx, min(d, timeout))
-		return s.finish("wait", t0, map[string]any{"condition": cond, "waited_ms": time.Since(t0).Milliseconds()}, s.wantShot(in.Screenshot), 0), nil, nil
+		return s.finish("wait", t0, map[string]any{"condition": cond, "waited_ms": time.Since(t0).Milliseconds()}, shot, 0), nil, nil
 	}
 	f := map[string]any{"ok": false, "timeout": true, "condition": cond, "waited_ms": time.Since(t0).Milliseconds()}
-	return s.finish("wait", t0, f, s.wantShot(in.Screenshot), 0), nil, nil
+	return s.finish("wait", t0, f, shot, 0), nil, nil
 }

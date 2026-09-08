@@ -22,10 +22,20 @@ type RegionIn struct {
 }
 
 type captureSpec struct {
-	monitor string
-	region  *RegionIn
-	scale   float64
-	format  string
+	monitor    string
+	region     *RegionIn
+	screenRect *geom.Rect // pre-resolved screen rect; overrides region
+	monID      int        // monitor for the view when screenRect is set
+	scale      float64
+	format     string
+}
+
+// shotSpec tells finish whether and how to capture after an action.
+type shotSpec struct {
+	Want       bool
+	Region     *RegionIn  // original image-space region (kept for reference)
+	screenRect *geom.Rect // resolved to screen coords at handler start
+	monitorID  int        // monitor from the view at handler start
 }
 
 func (s *Session) monitors() ([]platform.Monitor, error) {
@@ -111,6 +121,12 @@ func (s *Session) capture(spec captureSpec) (*screen.Shot, Meta, error) {
 	monID := 0
 	scale := spec.scale
 	switch {
+	case spec.screenRect != nil:
+		rect = *spec.screenRect
+		monID = spec.monID
+		if scale <= 0 {
+			scale = screen.ZoomScale(rect, s.cfg.ScreenshotLongEdge, 2)
+		}
 	case spec.region != nil:
 		v := s.currentView()
 		r := geom.Rect{X: spec.region.X, Y: spec.region.Y, W: spec.region.W, H: spec.region.H}
@@ -246,7 +262,7 @@ func (s *Session) settleFor(action string) time.Duration {
 }
 
 // finish waits for the UI to settle, captures if wanted, and builds the standard result.
-func (s *Session) finish(action string, t0 time.Time, extra map[string]any, withShot bool, settle time.Duration) *mcp.CallToolResult {
+func (s *Session) finish(action string, t0 time.Time, extra map[string]any, shot shotSpec, settle time.Duration) *mcp.CallToolResult {
 	ms := time.Since(t0).Milliseconds()
 	s.mu.Lock()
 	summary := s.traceSum
@@ -265,12 +281,18 @@ func (s *Session) finish(action string, t0 time.Time, extra map[string]any, with
 	for k, v := range extra {
 		f[k] = v
 	}
-	var shot *screen.Shot
-	if withShot {
+	var pic *screen.Shot
+	if shot.Want {
 		time.Sleep(settle)
-		var err error
+		var spec captureSpec
+		if shot.screenRect != nil {
+			spec = captureSpec{screenRect: shot.screenRect, monID: shot.monitorID}
+		} else {
+			spec = captureSpec{monitor: s.sameMonitorSpec()}
+		}
 		var meta Meta
-		shot, meta, err = s.capture(captureSpec{monitor: s.sameMonitorSpec()})
+		var err error
+		pic, meta, err = s.capture(spec)
 		if err == nil {
 			meta.into(f)
 		} else {
@@ -281,7 +303,7 @@ func (s *Session) finish(action string, t0 time.Time, extra map[string]any, with
 	}
 	f["ms"] = time.Since(t0).Milliseconds()
 	s.logTiming(action, t0)
-	return okResult(f, shot)
+	return okResult(f, pic)
 }
 
 // sameMonitorSpec keeps follow-up screenshots on the monitor of the current view (region views reset to full monitor).
@@ -329,4 +351,45 @@ func parseModifiers(names []string) ([]uint16, error) {
 		out = append(out, vk)
 	}
 	return out, nil
+}
+
+// shotFor builds a shotSpec, resolving any screenshot_region against the current view.
+// Call at the top of the handler before begin() or any action that might change the view.
+func (s *Session) shotFor(wantShot bool, region *RegionIn) shotSpec {
+	if region != nil {
+		wantShot = true // a region implies the caller wants a screenshot
+	}
+	spec := shotSpec{Want: wantShot}
+	if region != nil {
+		v := s.currentView()
+		r := geom.Rect{X: region.X, Y: region.Y, W: region.W, H: region.H}
+		sr := v.RectToScreen(r).Intersect(v.Screen)
+		if !sr.Empty() {
+			spec.Region = region
+			spec.screenRect = &sr
+			spec.monitorID = v.Monitor
+		}
+	}
+	return spec
+}
+
+func parseHexColor(s string) (r, g, b uint8, err error) {
+	if len(s) != 7 || s[0] != '#' {
+		return 0, 0, 0, fmt.Errorf("color must be #RRGGBB, got %q", s)
+	}
+	v, err := strconv.ParseUint(s[1:], 16, 24)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid hex color %q", s)
+	}
+	return uint8(v >> 16), uint8(v >> 8), uint8(v), nil
+}
+
+func colorMatch(r1, g1, b1, r2, g2, b2 uint8, tol int) bool {
+	abs := func(x int) int {
+		if x < 0 {
+			return -x
+		}
+		return x
+	}
+	return abs(int(r1)-int(r2)) <= tol && abs(int(g1)-int(g2)) <= tol && abs(int(b1)-int(b2)) <= tol
 }

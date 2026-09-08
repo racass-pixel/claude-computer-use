@@ -181,9 +181,9 @@ func (s *Session) recipeRun(ctx context.Context, in RecipeIn) (*mcp.CallToolResu
 		"successes": updated.Successes,
 	}
 	if s.wantShot(in.Screenshot) {
-		return s.finish("recipe", t0, f, true, 120*time.Millisecond), nil, nil
+		return s.finish("recipe", t0, f, shotSpec{Want: true}, 120*time.Millisecond), nil, nil
 	}
-	return s.finish("recipe", t0, f, false, 0), nil, nil
+	return s.finish("recipe", t0, f, shotSpec{}, 0), nil, nil
 }
 
 func (s *Session) recipeDelete(in RecipeIn) (*mcp.CallToolResult, any, error) {
