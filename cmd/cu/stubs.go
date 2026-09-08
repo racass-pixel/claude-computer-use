@@ -4,8 +4,7 @@ import "errors"
 
 var errNotImplemented = errors.New("not implemented yet")
 
-func runServe(args []string) error      { return errNotImplemented }
-func runCtl(args []string) error        { return errNotImplemented }
-func runDemo(args []string) error       { return errNotImplemented }
-func runScreenshot(args []string) error { return errNotImplemented }
-func runInput(args []string) error      { return errNotImplemented }
+func runServe(args []string) error { return errNotImplemented }
+func runCtl(args []string) error   { return errNotImplemented }
+func runDemo(args []string) error  { return errNotImplemented }
+func runInput(args []string) error { return errNotImplemented }
