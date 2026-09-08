@@ -9183,3 +9183,34 @@ Measurement (2026-09-08, controller): the same desktop-only Notepad task without
 - [ ] **Step 2: Implement**; keep `recipe` schema `required` = none (all optional, action defaults to `search` when `query` given? — no: keep `action` required as today).
 - [ ] **Step 3: Live check** from outside the repo: remove auto/curated recipes for the Notepad task, run the Notepad prompt (`--output-format json` + MCP log): run 1 = manual → auto-record on release (check the JSON file appears with `auto:true`); run 2 = the session must call `control acquire`, get the suggestion, `recipe run` it, and finish with fewer MCP tool calls (count "Calling MCP tool" lines in the MCP log) and less wall time; report both numbers. If run 2 does not use the recipe, inspect the transcript (`--output-format stream-json --verbose`), fix the prompt/description once, retry once.
 - [ ] **Step 4: Commit** `feat: recipe suggestions on acquire, trace-based drafts, auto-recording and success tracking`.
+
+---
+
+### Task 24: Long drags — held mouse buttons across calls, waypoint drags, cross-window drag-and-drop
+
+User question (2026-09-08): "can it take a file with a drag, hold it, go to another directory or open the browser and drop it into a drag-and-drop zone?" Today `drag` is one atomic press→glide→release; the button cannot be held across calls, so switching windows mid-drag (taskbar hover, Alt+Tab) is impossible.
+
+**Files:**
+- Modify: `internal/actions/actions.go` (+tests: `Press(p, btn)`, `Release(p *geom.Point, btn)`, `DragVia(from, via []Waypoint, to, btn, dur)`), `internal/server/tools_mouse.go` (+tests: `mouse_down`, `mouse_up`, `drag{via, hold_ms}`), `internal/server/session.go` (held-button state: `heldButton platform.MouseButton`, `heldSince time.Time`; auto-release on pause/`control release`/idle release/shutdown and after `drag_hold_timeout_ms`), `internal/server/server.go` (register), `internal/server/tools_batch.go` (batchable), `internal/config` (`drag_hold_timeout_ms` default 60000), `agents/operator.md`, `skills/computer-use/SKILL.md`, README*.md, CHANGELOG.
+
+**Interfaces:**
+```go
+// actions
+type Waypoint struct { P geom.Point; WaitMs int }
+func (a *Actor) Press(p geom.Point, btn platform.MouseButton) error            // MoveTo(p) → MouseDown; small 30 ms settle; NO release
+func (a *Actor) Release(p *geom.Point, btn platform.MouseButton) error        // optional MoveTo(p) → 80 ms → MouseUp
+func (a *Actor) DragVia(from geom.Point, via []Waypoint, to geom.Point, btn platform.MouseButton, dur time.Duration) error
+// = Press(from) → for each waypoint: interpolated move (≥ 8 steps) to P then sleep(WaitMs) → interpolated move to `to` → 80 ms → MouseUp
+
+// server tools
+type MouseDownIn struct { X *int; Y *int; Element string; Button string; Screenshot *bool; ScreenshotRegion *RegionIn }
+type MouseUpIn   struct { X *int; Y *int; Element string; Button string; Screenshot *bool; ScreenshotRegion *RegionIn }  // x,y optional: release where the cursor is
+// DragIn gains: Via []PointIn-with-WaitMs `json:"via,omitempty"` (each {x,y,element?,wait_ms?}) and HoldMs int `json:"hold_ms,omitempty"` (pause over the target before releasing; default 80)
+```
+Semantics: `mouse_down` records `heldButton`; while held, `move`, `key`, `wait`, `scroll`, `window`, `screenshot` all work (the model can hover a taskbar button for ≥ 1200 ms to make Windows switch windows, or press Alt+Tab); `mouse_up` releases (at the current cursor position or at x,y) and clears the state; `click` while a button is held first releases it (with a `released_held_button: true` field). Safety: on `control release`, on pause (`user_took_control`), on idle release, on server shutdown, and when `drag_hold_timeout_ms` elapses (checked in `begin()` of any action and by the idle ticker) the held button is released automatically and the result carries `auto_released: true`. Tool descriptions explain the cross-window recipe: `mouse_down` on the file → `move` to the target window's taskbar button → `wait{ms:1200}` (Windows activates it) → `move` to the drop zone → `mouse_up`; or a single `drag` with `via:[{x,y,wait_ms:1200}]`.
+
+- [ ] **Step 1: Tests first** — actions: `Press` sequence `move,down`; `Release(nil)` → `up` only; `Release(&p)` → `move,up`; `DragVia` order `move from, down, ≥8 moves to wp1, (sleep), ≥8 moves to `to`, up`. Server: `mouse_down` then `move` then `mouse_up` → fake input `move,down,…,move,…,up` and `heldButton` cleared; `click` while held → `up` precedes the click and result has `released_held_button`; `control release` while held → `up` sent, `auto_released`; pause path (fake paused controller) → button released before `user_took_control`; timeout path with an injectable clock; `drag` with `via` waypoints and `hold_ms`; schema: `mouse_down`/`mouse_up` require nothing, `drag` still requires `from`,`to`.
+- [ ] **Step 2: Implement**; register `mouse_down`, `mouse_up`; add both to `batchable()` and to the operator's tool list; the recipe `Draft` treats them as action tools.
+- [ ] **Step 3: Prompts + docs** — operator: "Cross-window drag-and-drop" section (taskbar-hover and Alt+Tab variants, always `mouse_up` even on failure); skill: mention; README tools table (+2 rows, `drag` row updated), CHANGELOG.
+- [ ] **Step 4: Live check** (from outside the repo): create `<scratch>/dropzone.html` (a page with a large `ondrop` zone that prints the dropped file's name), open it in Chrome (file:// URL), keep Chrome NOT maximized; put a test file on the Desktop; run `claude -p` with a prompt asking to drag that Desktop file into the Chrome drop zone using the taskbar-hover technique (or `drag` with `via`) and report; the page must show the file name. Then a second check: `mouse_down` on a Desktop icon, `key alt+tab` to Explorer, `mouse_up` into a folder (use `Downloads\cu-eval`) — file moved (then move it back with a normal drag or leave it and report). Report both outcomes honestly; if Windows refuses the taskbar-hover switch, document the Alt+Tab variant as the recommended one.
+- [ ] **Step 5: Commit** `feat: held mouse buttons, waypoint drags and cross-window drag-and-drop`.
