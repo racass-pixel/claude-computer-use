@@ -2,4 +2,6 @@
 
 package main
 
-func runDemo(args []string) error { return errNotImplemented }
+import "errors"
+
+func runDemo(args []string) error { return errors.New("cu demo is Windows-only") }

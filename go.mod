@@ -7,7 +7,10 @@ require (
 	golang.org/x/sys v0.47.0
 )
 
-require golang.org/x/text v0.41.0 // indirect
+require (
+	github.com/Microsoft/go-winio v0.6.2 // indirect
+	golang.org/x/text v0.41.0 // indirect
+)
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect

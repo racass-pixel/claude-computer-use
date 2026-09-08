@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"image/color"
 	"io"
 	"log"
@@ -11,10 +12,13 @@ import (
 	"os/signal"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/racass-pixel/claude-computer-use/internal/config"
 	"github.com/racass-pixel/claude-computer-use/internal/geom"
 	"github.com/racass-pixel/claude-computer-use/internal/guard"
 	"github.com/racass-pixel/claude-computer-use/internal/input"
+	"github.com/racass-pixel/claude-computer-use/internal/ipc"
 	"github.com/racass-pixel/claude-computer-use/internal/overlay"
 	"github.com/racass-pixel/claude-computer-use/internal/platform"
 	"github.com/racass-pixel/claude-computer-use/internal/screen"
@@ -47,6 +51,11 @@ func runServe(args []string) error {
 			_ = win.WaitForProcessExit(ppid)
 			logger.Printf("parent %d exited", ppid)
 			cancel()
+			// server.Run may not return if stdin is a console; force exit.
+			time.AfterFunc(500*time.Millisecond, func() {
+				logger.Printf("forcing exit after parent death")
+				os.Exit(0)
+			})
 		}
 	}()
 	sig := make(chan os.Signal, 1)
@@ -108,6 +117,29 @@ func runServe(args []string) error {
 		return err
 	}
 	defer runner.Stop()
+
+	go func() {
+		err := ipc.Serve(ctx, windows.GetCurrentProcessId(), func(cmd string) (any, error) {
+			now := time.Now()
+			switch cmd {
+			case "status":
+				return machine.Status(), nil
+			case "resume":
+				machine.Resume(now, guard.ReasonPrompt)
+				return machine.Status(), nil
+			case "release":
+				machine.Release(now)
+				return machine.Status(), nil
+			case "pause":
+				machine.Pause(now, guard.ReasonHotkey)
+				return machine.Status(), nil
+			}
+			return nil, fmt.Errorf("unknown command %q", cmd)
+		})
+		if err != nil {
+			logger.Printf("ipc: %v", err)
+		}
+	}()
 
 	deps := server.Deps{
 		Screen:     screen.New(),
