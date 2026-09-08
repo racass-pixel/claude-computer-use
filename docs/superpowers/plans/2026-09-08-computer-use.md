@@ -23,7 +23,7 @@
 - Commit after every task with a conventional message (`feat:`, `test:`, `docs:`, `chore:`) and these trailer lines:
   `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_01Sxm6N7JAYL37cRNwwAkPh4`
-- Run `go build ./... && go vet ./... && go test ./...` before every commit. All three must be clean.
+- Run `go build ./... && go vet -unsafeptr=false ./... && go test ./...` before every commit. All three must be clean. (`-unsafeptr=false`: the analyzer false-positives on golang.org/x/sys/windows and on the standard Win32 `(*T)(unsafe.Pointer(lparam))` pattern; CI uses the same flag.)
 - Speed budget: any action tool must finish its own work (excluding waits the caller asked for) in under 100 ms on a 1080p monitor; log timing on stderr as `tool=<name> ms=<n>`.
 
 ## File Structure
