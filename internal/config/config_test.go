@@ -6,7 +6,7 @@ func TestDefaults(t *testing.T) {
 	c := Default()
 	if c.Hotkey != "esc esc" || !c.AutoPause || c.MouseThresholdPx != 12 || c.ScreenshotLongEdge != 1366 ||
 		c.ScreenshotFormat != "png" || c.JPEGQuality != 85 || c.Lang != "auto" || c.Accent != "#D97757" ||
-		!c.Overlay || c.IdleReleaseMs != 120000 || c.PauseWaitMs != 20000 || c.PasteThreshold != 200 {
+		!c.Overlay || c.IdleReleaseMs != 120000 || c.PauseWaitMs != 20000 || c.PasteThreshold != 200 || c.BorderThickness != 40 {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }
@@ -19,11 +19,11 @@ func TestFileThenEnvOverride(t *testing.T) {
 	if c.Hotkey != "ctrl+alt+esc" || c.ScreenshotLongEdge != 1024 || c.Overlay || c.AutoPause != true {
 		t.Fatalf("file merge wrong: %+v", c)
 	}
-	env := map[string]string{"CU_SCREENSHOT_LONG_EDGE": "1568", "CU_AUTO_PAUSE": "false", "CU_LANG": "ru", "CU_ACCENT": "#3366FF"}
+	env := map[string]string{"CU_SCREENSHOT_LONG_EDGE": "1568", "CU_AUTO_PAUSE": "false", "CU_LANG": "ru", "CU_ACCENT": "#3366FF", "CU_BORDER_THICKNESS": "60"}
 	if err := applyEnv(&c, func(k string) string { return env[k] }); err != nil {
 		t.Fatal(err)
 	}
-	if c.ScreenshotLongEdge != 1568 || c.AutoPause || c.Lang != "ru" || c.Accent != "#3366FF" {
+	if c.ScreenshotLongEdge != 1568 || c.AutoPause || c.Lang != "ru" || c.Accent != "#3366FF" || c.BorderThickness != 60 {
 		t.Fatalf("env override wrong: %+v", c)
 	}
 	r, g, b, err := c.AccentRGB()

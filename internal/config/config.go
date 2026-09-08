@@ -24,6 +24,7 @@ type Config struct {
 	IdleReleaseMs      int    `json:"idle_release_ms"`
 	PauseWaitMs        int    `json:"pause_wait_ms"`
 	PasteThreshold     int    `json:"paste_threshold"`
+	BorderThickness    int    `json:"border_thickness"`
 	LogFile            string `json:"log_file"`
 }
 
@@ -32,7 +33,7 @@ func Default() Config {
 		Hotkey: "esc esc", AutoPause: true, MouseThresholdPx: 12,
 		ScreenshotLongEdge: 1366, ScreenshotFormat: "png", JPEGQuality: 85,
 		Lang: "auto", Accent: "#D97757", Overlay: true,
-		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200,
+		IdleReleaseMs: 120000, PauseWaitMs: 20000, PasteThreshold: 200, BorderThickness: 40,
 	}
 }
 
@@ -114,6 +115,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		num("CU_IDLE_RELEASE_MS", &c.IdleReleaseMs),
 		num("CU_PAUSE_WAIT_MS", &c.PauseWaitMs),
 		num("CU_PASTE_THRESHOLD", &c.PasteThreshold),
+		num("CU_BORDER_THICKNESS", &c.BorderThickness),
 	} {
 		if e != nil {
 			return e

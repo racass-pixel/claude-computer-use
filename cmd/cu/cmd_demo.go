@@ -22,6 +22,7 @@ func runDemo(args []string) error {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	secs := fs.Int("seconds", 5, "how long to show the overlay")
 	out := fs.String("o", "", "also save a screenshot (to prove the overlay is excluded)")
+	pausedOut := fs.String("paused-o", "", "save a screenshot during the paused state")
 	mon := fs.Int("m", 1, "monitor id")
 	showInCapture := fs.Bool("show-in-capture", false, "skip SetWindowDisplayAffinity so the overlay appears in screenshots")
 	if err := fs.Parse(args); err != nil {
@@ -50,7 +51,7 @@ func runDemo(args []string) error {
 	if lang == "auto" {
 		lang = win.UserUILanguage()
 	}
-	ov, err := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: "Esc Esc"})
+	ov, err := overlay.New(ui, overlay.Config{Accent: color.RGBA{R: r, G: g, B: b, A: 255}, Lang: lang, HotkeyLabel: "Esc Esc", Thick: cfg.BorderThickness})
 	if err != nil {
 		return err
 	}
@@ -82,6 +83,17 @@ func runDemo(args []string) error {
 		}
 	}
 	ov.Show(m, platform.OverlayPaused)
+	if *pausedOut != "" {
+		time.Sleep(500 * time.Millisecond)
+		shot, err := screen.Grab(s, m.Rect, screen.AutoScale(m.Rect, 1366), "png", 85)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*pausedOut, shot.Data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("saved paused %s\n", *pausedOut)
+	}
 	time.Sleep(3 * time.Second)
 	return nil
 }
