@@ -36,7 +36,9 @@ func newLayeredWin(x, y, w, h int) (*layeredWin, error) {
 }
 
 func (l *layeredWin) update(img *image.RGBA) {
-	_ = l.surf.Update(l.hwnd, l.x, l.y, img)
+	if err := l.surf.Update(l.hwnd, l.x, l.y, img); err != nil {
+		return
+	}
 	if !l.visible {
 		win.ShowNoActivate(l.hwnd)
 		l.visible = true
@@ -142,13 +144,10 @@ func (o *Overlay) HideForCapture() {
 func (o *Overlay) ShowAfterCapture() {
 	for _, s := range o.strips {
 		if s != nil && !s.visible {
-			// Only re-show if we were showing before
-			if o.set != nil {
-				s.update(o.set.images()[0]) // just re-show; next frame() will paint correctly
-			}
+			win.ShowNoActivate(s.hwnd)
+			s.visible = true
 		}
 	}
-	// Re-show strips with their current images
 	o.frame()
 }
 
