@@ -450,6 +450,7 @@ func (o *Overlay) refreshHUD() {
 		if newA >= 1 {
 			o.cfadeT0 = time.Time{}
 		} else {
+			spec.Crossfading = true
 			spec.PrevTitle = o.cfadeTitle
 			spec.PrevSub = o.cfadeSub
 			spec.PrevPaused = o.cfadePrevPaused

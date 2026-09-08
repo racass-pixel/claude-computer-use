@@ -130,11 +130,13 @@ type hudSpec struct {
 	SparkScale  float64 // breathing multiplier 0.92..1.08; 0 means 1
 	Alpha       float64 // overall alpha multiplier 0..1; 0 means 1
 
-	// Crossfade: when CrossT is in (0,1), blend from Prev* to current over that progress.
-	PrevTitle  string
-	PrevSub    string
-	PrevPaused bool
-	CrossT     float64 // 0 = fully old, 1 = fully new; <= 0 or >= 1 means no crossfade
+	// Crossfade: when Crossfading is true, blend from Prev* to current.
+	// CrossT progresses 0 (fully old) to 1 (fully new).
+	Crossfading bool
+	PrevTitle   string
+	PrevSub     string
+	PrevPaused  bool
+	CrossT      float64
 }
 
 // ---- font cache (per-scale, avoids per-frame allocation) ----
@@ -228,8 +230,11 @@ func renderHUD(spec hudSpec) *image.RGBA {
 		alpha = 1
 	}
 
-	crossfading := spec.CrossT > 0 && spec.CrossT < 1
+	crossfading := spec.Crossfading && spec.CrossT < 1
 	newT := spec.CrossT
+	if newT < 0 {
+		newT = 0
+	}
 	oldT := 1 - newT
 	if !crossfading {
 		newT = 1
@@ -256,7 +261,7 @@ func renderHUD(spec hudSpec) *image.RGBA {
 		}
 	}
 
-	// Key-cap hint: blend between paused and controlling text.
+	// Key-cap hint: crossfade between old and new when palette changes.
 	curPaused := spec.Paused
 	prevPaused := spec.PrevPaused
 	if !crossfading {
@@ -270,7 +275,13 @@ func renderHUD(spec hudSpec) *image.RGBA {
 	if curPaused {
 		hint = strs.HandBack
 	}
-	// During palette crossfade, use the new hint (it changes instantly).
+	prevHint := hint
+	if crossfading && prevPaused != curPaused {
+		prevHint = strs.TakeControl
+		if prevPaused {
+			prevHint = strs.HandBack
+		}
+	}
 
 	keys := strings.Fields(spec.HotkeyLabel)
 	if len(keys) == 0 {
@@ -290,7 +301,13 @@ func renderHUD(spec hudSpec) *image.RGBA {
 		capWidths = append(capWidths, kw)
 		capsWidth += kw + capGap
 	}
-	capsWidth += hintGap + textWidth(capFace, hint)
+	hintW := textWidth(capFace, hint)
+	if crossfading && prevHint != hint {
+		if pw := textWidth(capFace, prevHint); pw > hintW {
+			hintW = pw
+		}
+	}
+	capsWidth += hintGap + hintW
 
 	subTW := 0
 	if spec.Sub != "" {
@@ -409,7 +426,12 @@ func renderHUD(spec hudSpec) *image.RGBA {
 		capX += kw + capGap
 	}
 	capX += hintGap - capGap
-	drawText(img, capFace, capX, capBaseline, hint, hudDetailColor)
+	if crossfading && prevHint != hint {
+		drawText(img, capFace, capX, capBaseline, prevHint, scaleAlpha(hudDetailColor, oldT))
+		drawText(img, capFace, capX, capBaseline, hint, scaleAlpha(hudDetailColor, newT))
+	} else {
+		drawText(img, capFace, capX, capBaseline, hint, hudDetailColor)
+	}
 
 	// Overall alpha
 	if alpha < 1 {

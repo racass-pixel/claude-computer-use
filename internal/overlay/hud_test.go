@@ -171,6 +171,7 @@ func TestCrossfadeShortLongNoBoundsCorruption(t *testing.T) {
 		Sub:         longSub,
 		PrevTitle:   "Test",
 		PrevSub:     shortSub,
+		Crossfading: true,
 		CrossT:      0.5,
 		HotkeyLabel: "Esc Esc",
 		Lang:        "en",
@@ -178,23 +179,17 @@ func TestCrossfadeShortLongNoBoundsCorruption(t *testing.T) {
 		Accent:      color.RGBA{R: 217, G: 119, B: 87, A: 255},
 	})
 	b := img.Bounds()
-	// No pixel outside the bounds should be non-transparent (they are all zero-initialized).
-	// Check all four corners are transparent (rounded rect).
 	if img.RGBAAt(0, 0).A != 0 {
 		t.Fatal("top-left corner must be transparent")
 	}
 	if img.RGBAAt(b.Dx()-1, 0).A != 0 {
 		t.Fatal("top-right corner must be transparent")
 	}
-
-	// The hairline top row (outside rounded corners) must be uniform.
-	// Sample the middle of the top row — it should have the hairline alpha.
+	// Hairline uniformity check (skip rounded corners, radius=14).
 	midTop := img.RGBAAt(b.Dx()/2, 0)
 	if midTop.A == 0 {
 		t.Fatal("hairline at top center must be visible")
 	}
-	// Check that pixels on the top row outside the rounded corners have consistent alpha.
-	// Radius is 14 at scale 1, so skip the first/last 16 pixels.
 	margin := 16
 	for x := margin; x < b.Dx()-margin; x++ {
 		c := img.RGBAAt(x, 0)
@@ -205,14 +200,73 @@ func TestCrossfadeShortLongNoBoundsCorruption(t *testing.T) {
 			}
 		}
 	}
-
-	// The pill width should accommodate the long caption (wider than short-only).
+	// Pill must be wider than a short-only render.
 	imgShort := renderHUD(hudSpec{
 		Title: "Test", Sub: shortSub, HotkeyLabel: "Esc Esc", Lang: "en", Scale: 1,
 		Accent: color.RGBA{R: 217, G: 119, B: 87, A: 255},
 	})
 	if b.Dx() <= imgShort.Bounds().Dx() {
 		t.Fatalf("crossfade pill should be wider than short-only: cf=%d short=%d", b.Dx(), imgShort.Bounds().Dx())
+	}
+}
+
+func TestCrossfadeAtT0RendersOldCaption(t *testing.T) {
+	// At CrossT=0 with Crossfading=true, the old caption must be rendered (alpha=1)
+	// and the new caption invisible (alpha=0). The pill must be at max width.
+	shortSub := "X"
+	longSub := "Running a recipe · open-notepad-save-and-close-document-with-very-long-name"
+	// New = short (current), Old = long (prev). At t=0, old is fully visible.
+	imgCF := renderHUD(hudSpec{
+		Title:       "Test",
+		Sub:         shortSub,
+		PrevTitle:   "Test",
+		PrevSub:     longSub,
+		Crossfading: true,
+		CrossT:      0,
+		HotkeyLabel: "Esc Esc",
+		Lang:        "en",
+		Scale:       1,
+		Accent:      color.RGBA{R: 217, G: 119, B: 87, A: 255},
+	})
+	// Render long sub by itself to know its width.
+	imgLong := renderHUD(hudSpec{
+		Title: "Test", Sub: longSub, HotkeyLabel: "Esc Esc", Lang: "en", Scale: 1,
+		Accent: color.RGBA{R: 217, G: 119, B: 87, A: 255},
+	})
+	// The crossfade pill must be at least as wide as the long-only pill.
+	if imgCF.Bounds().Dx() < imgLong.Bounds().Dx() {
+		t.Fatalf("crossfade t=0 pill too narrow: cf=%d long=%d", imgCF.Bounds().Dx(), imgLong.Bounds().Dx())
+	}
+	// The old (long) caption should be visible: probe a pixel in the subtitle area
+	// past the short caption's extent. The long caption paints warm-gray text there.
+	imgShort := renderHUD(hudSpec{
+		Title: "Test", Sub: shortSub, HotkeyLabel: "Esc Esc", Lang: "en", Scale: 1,
+		Accent: color.RGBA{R: 217, G: 119, B: 87, A: 255},
+	})
+	// Find a pixel that is opaque in imgLong's subtitle area but transparent in imgShort.
+	found := false
+	shortW := imgShort.Bounds().Dx()
+	for y := imgLong.Bounds().Dy() / 2; y < imgLong.Bounds().Dy(); y++ {
+		for x := shortW - 20; x < imgLong.Bounds().Dx()-20; x++ {
+			if x < 0 || x >= imgLong.Bounds().Dx() {
+				continue
+			}
+			lc := imgLong.RGBAAt(x, y)
+			if lc.A > 30 && lc.R > 0x90 { // warm gray subtitle text
+				// This pixel must also be painted in the crossfade render.
+				cc := imgCF.RGBAAt(x, y)
+				if cc.A > 20 {
+					found = true
+					break
+				}
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Fatal("at CrossT=0, old (long) caption must be visible but was not found")
 	}
 }
 
