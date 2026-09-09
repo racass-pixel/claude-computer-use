@@ -25,6 +25,7 @@ func runDemo(args []string) error {
 	pausedOut := fs.String("paused-o", "", "save a screenshot during the paused state")
 	mon := fs.Int("m", 1, "monitor id")
 	showInCapture := fs.Bool("show-in-capture", false, "skip SetWindowDisplayAffinity so the overlay appears in screenshots")
+	interval := fs.Int("interval-ms", 1200, "delay between demo action captions")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,12 +90,19 @@ func runDemo(args []string) error {
 	ov.Show(m, platform.OverlayControlling)
 
 	screenshotTaken := false
-	for i := 0; i < *secs*2; i++ {
+	if *interval < 100 {
+		*interval = 100
+	}
+	steps := (*secs * 1000) / *interval
+	if steps < 1 {
+		steps = 1
+	}
+	for i := 0; i < steps; i++ {
 		action := actions[i%len(actions)]
 		ov.SetAction(action)
 		ov.Ripple(geom.Point{X: m.Rect.X + 200 + i*60, Y: m.Rect.Y + 300})
-		time.Sleep(500 * time.Millisecond)
-		if *out != "" && !screenshotTaken && i >= *secs {
+		time.Sleep(time.Duration(*interval) * time.Millisecond)
+		if *out != "" && !screenshotTaken && i >= steps/2 {
 			shot, err := screen.Grab(s, m.Rect, screen.AutoScale(m.Rect, 1366), "png", 85)
 			if err != nil {
 				return err

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `cu demo` gains `-interval-ms` (default 1200) so captions change at a readable pace; the README demo GIF was re-recorded with the current HUD over a neutral backdrop.
+
 ## 0.1.0 — 2026-09-08
 
 - Claude-style HUD: animated spark logo, warm dark pill, human-readable action captions (localized ru/en), key-cap hints, border glow shimmer; orchestrator writes the task title shown to the user
