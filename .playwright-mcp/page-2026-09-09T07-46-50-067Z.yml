@@ -1,0 +1,90 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Claude Companion
+    - generic [ref=e16]:
+      - button "–" [ref=e17] [cursor=pointer]
+      - button "□" [ref=e18] [cursor=pointer]
+      - button "✕" [ref=e19] [cursor=pointer]
+  - generic [ref=e20]:
+    - button "Chat" [ref=e21] [cursor=pointer]
+    - button "Agents" [active] [ref=e22] [cursor=pointer]
+    - button "History" [ref=e23] [cursor=pointer]
+  - generic [ref=e24]:
+    - complementary [ref=e25]:
+      - generic [ref=e26]: Claude Companion
+      - button "+ Новый чат" [ref=e33] [cursor=pointer]
+      - generic [ref=e34]:
+        - button "Открой блокнот и напиши... сейчас" [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]: Открой блокнот и напиши...
+          - generic [ref=e38]: сейчас
+        - button "Погода в Москве 5 мин" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Погода в Москве
+          - generic [ref=e42]: 5 мин
+        - button "⚙ Проверка сайта 12 мин" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]:
+            - generic [ref=e45]: ⚙
+            - generic [ref=e47]: Проверка сайта
+          - generic [ref=e48]: 12 мин
+        - button "⚙ Разбор почты 1 ч" [ref=e49] [cursor=pointer]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: ⚙
+            - generic [ref=e53]: Разбор почты
+          - generic [ref=e54]: 1 ч
+      - navigation [ref=e55]:
+        - button "Агенты" [ref=e56] [cursor=pointer]
+        - button "Настройки" [ref=e57] [cursor=pointer]
+        - button "История" [ref=e58] [cursor=pointer]
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - generic [ref=e125]:
+          - heading "Диспетчер" [level=2] [ref=e126]
+          - text: Sonnet 5
+        - generic [ref=e127]:
+          - generic [ref=e128]:
+            - generic [ref=e129]: ТОКЕНЫ
+            - generic [ref=e130]: 3,482
+          - generic [ref=e131]:
+            - generic [ref=e132]: СТОИМОСТЬ
+            - generic [ref=e133]: $0.0905
+          - generic [ref=e134]:
+            - generic [ref=e135]: STATUS
+            - generic [ref=e136]: thinking
+        - generic [ref=e137]:
+          - generic [ref=e138]:
+            - generic [ref=e140]: Открываю Telegram
+            - generic [ref=e141]: 12 s
+          - generic [ref=e142]: click 640,412
+      - heading "Задачи" [level=3] [ref=e143]
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e148]: Проверка сайта
+            - generic [ref=e149]: Opus 5
+          - generic [ref=e150]:
+            - text: Выполняется
+            - generic [ref=e151]: 3m 42s
+          - paragraph [ref=e152]: Запускаю тесты...
+          - generic [ref=e153]:
+            - button "Открыть" [ref=e154] [cursor=pointer]
+            - button "Стоп" [ref=e155] [cursor=pointer]
+        - generic [ref=e156]:
+          - generic [ref=e157]:
+            - generic [ref=e159]: Разбор почты
+            - generic [ref=e160]: Opus 5
+          - generic [ref=e161]:
+            - text: Ждёт ответа
+            - generic [ref=e162]: 8m 15s
+          - paragraph [ref=e163]: ❓ Удалить спам-письма?
+          - generic [ref=e164]:
+            - button "Открыть" [ref=e165] [cursor=pointer]
+            - button "Ответить" [ref=e166] [cursor=pointer]
+            - button "Стоп" [ref=e167] [cursor=pointer]
+        - generic [ref=e168]:
+          - generic [ref=e169]:
+            - generic [ref=e171]: Бекап фото
+            - generic [ref=e172]: Sonnet 5
+          - generic [ref=e173]:
+            - text: Завершена
+            - generic [ref=e174]: 5m 30s
+          - paragraph [ref=e175]: Скопировано 142 фото
+          - button "Открыть" [ref=e177] [cursor=pointer]

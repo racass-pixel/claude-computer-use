@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-09-09
 
+- Fix: overlay windows could stay on screen after the guard went idle when a screenshot raced with a release (`ShowAfterCapture` now respects the hidden state, and the server reconciles the overlay once a second while idle).
 - `cu demo` gains `-interval-ms` (default 1200) so captions change at a readable pace; the README demo GIF was re-recorded with the current HUD over a neutral backdrop.
 
 ## 0.1.0 — 2026-09-08

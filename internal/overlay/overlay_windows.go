@@ -181,6 +181,13 @@ func (o *Overlay) HideForCapture() {
 
 // ShowAfterCapture restores the overlay windows after a capture (fallback capture exclusion).
 func (o *Overlay) ShowAfterCapture() {
+	o.mu.Lock()
+	hidden := o.state == platform.OverlayHidden
+	o.mu.Unlock()
+	if hidden {
+		// A release raced with the capture: never re-show windows of a hidden overlay.
+		return
+	}
 	for _, s := range o.strips {
 		if s != nil && !s.visible {
 			win.ShowNoActivate(s.hwnd)
@@ -188,6 +195,32 @@ func (o *Overlay) ShowAfterCapture() {
 		}
 	}
 	o.frame()
+}
+
+// EnsureHidden re-asserts the hidden state: if the overlay is logically hidden
+// but any window is still visible (a lost fade-out tick, a capture race), hide
+// everything immediately. Safe to call from any goroutine at any time.
+func (o *Overlay) EnsureHidden() {
+	o.mu.Lock()
+	hidden := o.state == platform.OverlayHidden
+	o.mu.Unlock()
+	if !hidden {
+		return
+	}
+	o.t.Do(func() {
+		stale := false
+		for _, s := range o.strips {
+			if s != nil && s.visible {
+				stale = true
+			}
+		}
+		if o.hud != nil && o.hud.visible {
+			stale = true
+		}
+		if stale {
+			o.hideAllImmediate()
+		}
+	})
 }
 
 // ---- UI thread ----

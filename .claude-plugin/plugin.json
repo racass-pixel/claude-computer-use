@@ -1,11 +1,22 @@
 {
   "name": "computer-use",
   "displayName": "Computer Use",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Full desktop control for Claude Code on Windows: mouse, keyboard, windows, multi-monitor, UI Automation, a glowing take-over overlay and an instant user interrupt (Esc Esc).",
-  "author": { "name": "racass-pixel", "url": "https://github.com/racass-pixel" },
+  "author": {
+    "name": "racass-pixel",
+    "url": "https://github.com/racass-pixel"
+  },
   "homepage": "https://github.com/racass-pixel/claude-computer-use",
   "repository": "https://github.com/racass-pixel/claude-computer-use",
   "license": "MIT",
-  "keywords": ["computer-use", "desktop", "automation", "windows", "mcp", "gui", "operator"]
+  "keywords": [
+    "computer-use",
+    "desktop",
+    "automation",
+    "windows",
+    "mcp",
+    "gui",
+    "operator"
+  ]
 }

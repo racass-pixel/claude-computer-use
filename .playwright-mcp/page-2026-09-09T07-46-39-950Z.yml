@@ -1,0 +1,69 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Claude Companion
+    - generic [ref=e16]:
+      - button "–" [ref=e17] [cursor=pointer]
+      - button "□" [ref=e18] [cursor=pointer]
+      - button "✕" [ref=e19] [cursor=pointer]
+  - generic [ref=e20]:
+    - button "Chat" [ref=e21] [cursor=pointer]
+    - button "Agents" [ref=e22] [cursor=pointer]
+    - button "History" [ref=e23] [cursor=pointer]
+  - generic [ref=e24]:
+    - complementary [ref=e25]:
+      - generic [ref=e26]: Claude Companion
+      - button "+ Новый чат" [ref=e33] [cursor=pointer]
+      - generic [ref=e34]:
+        - button "Открой блокнот и напиши... сейчас" [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]: Открой блокнот и напиши...
+          - generic [ref=e38]: сейчас
+        - button "Погода в Москве 5 мин" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Погода в Москве
+          - generic [ref=e42]: 5 мин
+        - button "⚙ Проверка сайта 12 мин" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]:
+            - generic [ref=e45]: ⚙
+            - generic [ref=e47]: Проверка сайта
+          - generic [ref=e48]: 12 мин
+        - button "⚙ Разбор почты 1 ч" [ref=e49] [cursor=pointer]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: ⚙
+            - generic [ref=e53]: Разбор почты
+          - generic [ref=e54]: 1 ч
+      - navigation [ref=e55]:
+        - button "Агенты" [ref=e56] [cursor=pointer]
+        - button "Настройки" [ref=e57] [cursor=pointer]
+        - button "История" [ref=e58] [cursor=pointer]
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]:
+          - generic "клод открой блокнот и напиши привет" [ref=e64]: 🎤
+          - generic [ref=e65]: Открой блокнот и напиши привет
+        - paragraph [ref=e74]: Сейчас открою. Завёл задачу, оператор откроет блокнот и напишет.
+        - generic [ref=e75]:
+          - generic [ref=e76]: ⚙
+          - generic [ref=e77]: worker
+          - generic [ref=e78]: Открываю Notepad · 3 s
+        - generic [ref=e79]:
+          - generic [ref=e80]: ⚙
+          - generic [ref=e81]: worker
+          - generic [ref=e82]: type "привет" · 5 s
+        - generic [ref=e86]:
+          - paragraph [ref=e87]: "Готово! Блокнот открыт, «привет» написано. Вот пример кода:"
+          - generic [ref=e88]:
+            - generic [ref=e89]:
+              - generic [ref=e90]: JS
+              - button "Копировать" [ref=e91] [cursor=pointer]
+            - code [ref=e93]: console.log("привет мир");
+        - generic [ref=e94]: Спасибо! А какая погода?
+        - paragraph [ref=e100]: Сейчас проверю погоду...
+      - generic [ref=e102]:
+        - generic [ref=e103]: $0.0567
+        - generic [ref=e104]: 1,204 токенов
+      - generic [ref=e105]:
+        - generic [ref=e106]:
+          - textbox "Сообщение…" [ref=e107]
+          - button "Стоп" [ref=e108] [cursor=pointer]
+        - generic [ref=e109]:
+          - button "Слушаю" [ref=e110] [cursor=pointer]
+          - generic [ref=e115]: Sonnet 5

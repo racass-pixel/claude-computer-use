@@ -155,6 +155,25 @@ func runServe(args []string) error {
 	}
 	defer runner.Stop()
 
+	// Reconcile once a second: an idle guard must never leave overlay windows on
+	// screen (seen once in the field after a capture raced with a release).
+	if eh, ok := ov.(interface{ EnsureHidden() }); ok {
+		go func() {
+			tick := time.NewTicker(time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					if machine.Status().State == "idle" {
+						eh.EnsureHidden()
+					}
+				}
+			}
+		}()
+	}
+
 	go func() {
 		err := ipc.Serve(ctx, windows.GetCurrentProcessId(), func(cmd string) (any, error) {
 			now := time.Now()

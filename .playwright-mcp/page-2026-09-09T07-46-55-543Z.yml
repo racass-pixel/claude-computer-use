@@ -1,0 +1,73 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Claude Companion
+    - generic [ref=e16]:
+      - button "–" [ref=e17] [cursor=pointer]
+      - button "□" [ref=e18] [cursor=pointer]
+      - button "✕" [ref=e19] [cursor=pointer]
+  - generic [ref=e20]:
+    - button "Chat" [ref=e21] [cursor=pointer]
+    - button "Agents" [ref=e22] [cursor=pointer]
+    - button "History" [active] [ref=e23] [cursor=pointer]
+  - generic [ref=e24]:
+    - complementary [ref=e25]:
+      - generic [ref=e26]: Claude Companion
+      - button "+ Новый чат" [ref=e33] [cursor=pointer]
+      - generic [ref=e34]:
+        - button "Открой блокнот и напиши... сейчас" [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]: Открой блокнот и напиши...
+          - generic [ref=e38]: сейчас
+        - button "Погода в Москве 5 мин" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Погода в Москве
+          - generic [ref=e42]: 5 мин
+        - button "⚙ Проверка сайта 12 мин" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]:
+            - generic [ref=e45]: ⚙
+            - generic [ref=e47]: Проверка сайта
+          - generic [ref=e48]: 12 мин
+        - button "⚙ Разбор почты 1 ч" [ref=e49] [cursor=pointer]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: ⚙
+            - generic [ref=e53]: Разбор почты
+          - generic [ref=e54]: 1 ч
+      - navigation [ref=e55]:
+        - button "Агенты" [ref=e56] [cursor=pointer]
+        - button "Настройки" [ref=e57] [cursor=pointer]
+        - button "История" [ref=e58] [cursor=pointer]
+    - generic [ref=e179]:
+      - heading "История" [level=2] [ref=e180]
+      - textbox "Поиск…" [ref=e181]
+      - generic [ref=e182]:
+        - generic [ref=e183]:
+          - button "Открой блокнот и напиши привет сейчас 4 turns" [ref=e184] [cursor=pointer]:
+            - generic [ref=e185]: Открой блокнот и напиши привет
+            - generic [ref=e187]:
+              - generic [ref=e188]: сейчас
+              - generic [ref=e189]: 4 turns
+          - generic [ref=e190]:
+            - button "✏" [ref=e191] [cursor=pointer]
+            - button "🗑" [ref=e192] [cursor=pointer]
+        - button "Погода в Москве 5 мин 2 turns" [ref=e194] [cursor=pointer]:
+          - generic [ref=e195]: Погода в Москве
+          - generic [ref=e197]:
+            - generic [ref=e198]: 5 мин
+            - generic [ref=e199]: 2 turns
+        - button "⚙ Проверка сайта 12 мин 18 turns" [ref=e201] [cursor=pointer]:
+          - generic [ref=e202]:
+            - generic [ref=e203]: ⚙
+            - generic [ref=e204]: Проверка сайта
+          - generic [ref=e205]:
+            - generic [ref=e206]: 12 мин
+            - generic [ref=e207]: 18 turns
+        - button "⚙ Разбор почты 1 ч 32 turns" [ref=e209] [cursor=pointer]:
+          - generic [ref=e210]:
+            - generic [ref=e211]: ⚙
+            - generic [ref=e212]: Разбор почты
+          - generic [ref=e213]:
+            - generic [ref=e214]: 1 ч
+            - generic [ref=e215]: 32 turns
+        - button "Установи новый шрифт 2 д 6 turns" [ref=e217] [cursor=pointer]:
+          - generic [ref=e218]: Установи новый шрифт
+          - generic [ref=e220]:
+            - generic [ref=e221]: 2 д
+            - generic [ref=e222]: 6 turns
